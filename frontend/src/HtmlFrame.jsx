@@ -21,6 +21,15 @@ const STUB = `<script>
   };
   window.__xcStorage = storage;
   try { Object.defineProperty(window, 'localStorage', { configurable: true, value: storage }); } catch (e) {}
+  try {
+    window.requestAnimationFrame = function (cb) {
+      return setTimeout(function () { cb(performance.now()); }, 50);
+    };
+    var rawInterval = window.setInterval;
+    window.setInterval = function (fn, ms) {
+      return rawInterval(fn, Math.max(Number(ms) || 0, 120));
+    };
+  } catch (e) {}
   var noop = function () {};
   var asyncNoop = function () { return Promise.resolve(''); };
   window.eventEmit = window.eventEmit || noop;
@@ -63,6 +72,7 @@ function buildDoc(html) {
 export default function HtmlFrame({ html, label = 'HTML 界面' }) {
   const [showSource, setShowSource] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [paused, setPaused] = useState(false);
   const srcdoc = useMemo(() => buildDoc(html), [html]);
 
   return (
@@ -70,6 +80,11 @@ export default function HtmlFrame({ html, label = 'HTML 界面' }) {
       <div className="html-frame-bar">
         <span>{label}（预览）</span>
         <div>
+          {!showSource && (
+            <button type="button" onClick={() => setPaused((v) => !v)}>
+              {paused ? '加载界面' : '停止界面'}
+            </button>
+          )}
           <button type="button" onClick={() => setShowSource((v) => !v)}>
             {showSource ? '看界面' : '看源码'}
           </button>
@@ -80,6 +95,13 @@ export default function HtmlFrame({ html, label = 'HTML 界面' }) {
       </div>
       {showSource ? (
         <pre className="html-frame-source">{html}</pre>
+      ) : paused ? (
+        <div className="html-frame-paused">
+          <span>界面已停止（防止动画卡顿）</span>
+          <button type="button" onClick={() => setPaused(false)}>
+            重新加载
+          </button>
+        </div>
       ) : (
         <iframe
           title={label}

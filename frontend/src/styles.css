@@ -3264,3 +3264,23 @@ button {
 .empty-chat:has(.greeting-html) {
   max-width: min(56rem, 94%);
 }
+
+.html-frame-paused {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  height: 120px;
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.html-frame-paused button {
+  padding: 0.25rem 0.6rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.75rem;
+}

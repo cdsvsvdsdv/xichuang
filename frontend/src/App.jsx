@@ -264,7 +264,7 @@ export default function App() {
     setActiveConversation(null);
     activeConvIdRef.current = null;
     bridgeConvRef.current = null;
-    setStageFrozen(false);
+    setStageFrozen(true);
     setMessages([]);
     setModel(character.default_model || DEFAULT_MODEL);
     setView('chat');
@@ -295,6 +295,7 @@ export default function App() {
     setActiveConversation(conversation);
     activeConvIdRef.current = conversation.id;
     bridgeConvRef.current = conversation;
+    setStageFrozen(true);
     setModel(conversation.model || DEFAULT_MODEL);
     setSidebarOpen(false);
     setMemoryOpen(false);
@@ -420,6 +421,7 @@ export default function App() {
         api(`/api/conversations/${conversationId}/messages`)
           .then((list) => {
             setMessages(list);
+            if (activeCharacter?.html_greeting) setStageFrozen(true);
             const last = list[list.length - 1];
             if (
               activeCharacter?.html_greeting &&
@@ -735,6 +737,7 @@ export default function App() {
         `/api/conversations/${conversation.id}/messages`
       );
       if (activeConvIdRef.current === conversation.id) setMessages(fresh);
+      setStageFrozen(true);
       refreshConversations();
       return true;
     }
@@ -1194,7 +1197,7 @@ export default function App() {
             onClick={() => setStageFrozen((value) => !value)}
             type="button"
           >
-            {stageFrozen ? '恢复动画' : '冻结动画'}
+            {stageFrozen ? '启用交互' : '冻结动画'}
           </button>
         )}
         {frontendCard && stageStory && (

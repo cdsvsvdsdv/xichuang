@@ -3423,3 +3423,25 @@ button {
 .sent-preview span {
   color: var(--accent);
 }
+
+/* 卡片舞台改为上下分区，避免输入框遮挡 */
+.chat-pane.card-stage {
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-pane.card-stage .card-stage-bg {
+  position: relative;
+  inset: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  z-index: 0;
+}
+
+.chat-pane.card-stage .chat-header {
+  flex: 0 0 auto;
+}
+
+.chat-pane.card-stage .composer {
+  flex: 0 0 auto;
+}

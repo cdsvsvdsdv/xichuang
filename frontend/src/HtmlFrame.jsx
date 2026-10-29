@@ -188,6 +188,7 @@ export default function HtmlFrame({
         </div>
       ) : (
         <iframe
+          key={frozen ? 'frozen' : 'live'}
           ref={iframeRef}
           title={label}
           sandbox={frozen ? '' : 'allow-scripts allow-modals'}

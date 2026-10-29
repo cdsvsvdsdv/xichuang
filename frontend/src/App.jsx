@@ -891,6 +891,24 @@ export default function App() {
       )
     : conversations;
 
+  const frontendCard = Boolean(activeCharacter?.html_greeting);
+  const stageMessage = frontendCard
+    ? [...messages]
+        .reverse()
+        .find(
+          (m) =>
+            m.role === 'assistant' &&
+            m.content?.length > 600 &&
+            /<div[^>]*style=|<html|```html|<!doctype/i.test(m.content)
+        )
+    : null;
+  const stageHtml = stageMessage
+    ? stageMessage.content
+    : activeCharacter?.html_greeting || '';
+  const visibleMessages = stageMessage
+    ? messages.filter((m) => m.id !== stageMessage.id)
+    : messages;
+
   if (!authReady) {
     return <div className="login-page" />;
   }
@@ -1050,7 +1068,7 @@ export default function App() {
       </aside>
 
       <main
-        className="chat-pane"
+        className={`chat-pane ${frontendCard ? 'card-stage' : ''}`}
         style={{
           '--hue': hueOf(activeCharacter),
           ...(profile.background_url
@@ -1062,6 +1080,16 @@ export default function App() {
             : {}),
         }}
       >
+        {frontendCard && (
+          <div className="card-stage-bg">
+            <HtmlFrame
+              html={stageHtml}
+              label="卡片界面"
+              onRequest={handleCardBridge}
+              bare
+            />
+          </div>
+        )}
         <header className="chat-header">
           <button
             className="menu-btn"
@@ -1139,7 +1167,9 @@ export default function App() {
         </header>
 
         <div
-          className="messages"
+          className={`messages ${
+            frontendCard && !visibleMessages.length ? 'messages-hidden' : ''
+          }`}
           ref={messagesRef}
           onScroll={onMessagesScroll}
           aria-live="polite"
@@ -1148,7 +1178,7 @@ export default function App() {
             <div className="messages-loading">载入对话…</div>
           )}
 
-          {!loadingMessages && !messages.length && activeCharacter && (
+          {!loadingMessages && !messages.length && activeCharacter && !frontendCard && (
             <div className="empty-chat">
               <Avatar character={activeCharacter} index={activeIndex} big />
               <h2>{activeCharacter.name}</h2>
@@ -1180,13 +1210,13 @@ export default function App() {
             </div>
           )}
 
-          {messages.map((m, index) => (
+          {visibleMessages.map((m, index) => (
             <Message
               key={m.id}
               message={m}
               character={activeCharacter}
               hue={hue}
-              isLast={index === messages.length - 1}
+              isLast={index === visibleMessages.length - 1}
               streaming={streaming}
               onRegenerate={regenerate}
               onSwipe={swipeMessage}

@@ -113,7 +113,7 @@ function buildDoc(html) {
   return doc;
 }
 
-export default function HtmlFrame({ html, label = 'HTML 界面', onRequest }) {
+export default function HtmlFrame({ html, label = 'HTML 界面', onRequest, bare = false }) {
   const [showSource, setShowSource] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -149,26 +149,28 @@ export default function HtmlFrame({ html, label = 'HTML 界面', onRequest }) {
   }, []);
 
   return (
-    <div className={`html-frame ${expanded ? 'expanded' : ''}`}>
-      <div className="html-frame-bar">
-        <span>{label}（预览）</span>
-        <div>
-          {!showSource && (
-            <button type="button" onClick={() => setPaused((v) => !v)}>
-              {paused ? '加载界面' : '停止界面'}
+    <div className={`html-frame ${expanded ? 'expanded' : ''} ${bare ? 'bare' : ''}`}>
+      {!bare && (
+        <div className="html-frame-bar">
+          <span>{label}（预览）</span>
+          <div>
+            {!showSource && (
+              <button type="button" onClick={() => setPaused((v) => !v)}>
+                {paused ? '加载界面' : '停止界面'}
+              </button>
+            )}
+            <button type="button" onClick={() => setShowSource((v) => !v)}>
+              {showSource ? '看界面' : '看源码'}
             </button>
-          )}
-          <button type="button" onClick={() => setShowSource((v) => !v)}>
-            {showSource ? '看界面' : '看源码'}
-          </button>
-          <button type="button" onClick={() => setExpanded((v) => !v)}>
-            {expanded ? '收起' : '展开'}
-          </button>
+            <button type="button" onClick={() => setExpanded((v) => !v)}>
+              {expanded ? '收起' : '展开'}
+            </button>
+          </div>
         </div>
-      </div>
-      {showSource ? (
+      )}
+      {!bare && showSource ? (
         <pre className="html-frame-source">{html}</pre>
-      ) : paused ? (
+      ) : !bare && paused ? (
         <div className="html-frame-paused">
           <span>界面已停止（防止动画卡顿）</span>
           <button type="button" onClick={() => setPaused(false)}>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import RegexEditor from './RegexEditor';
 import VariablePanel from './VariablePanel';
 import WorldBook from './WorldBook';
 
@@ -300,7 +301,7 @@ export default function CharacterPanel({
         )}
 
         {section === 'regex' && (
-          <p className="empty-hint">正则功能在第二批开发中（查找替换对话内容）。</p>
+          <RegexEditor character={character} canManage={canManage} />
         )}
 
         {error && <p className="form-error">{error}</p>}

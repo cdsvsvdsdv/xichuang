@@ -12,6 +12,7 @@ from .db import SessionLocal
 from .memory import maybe_update_memory
 from .models import Character, Conversation, Memory, Message, Profile
 from .providers import stream_chat
+from .regex_engine import apply_rules, load_rules
 from .serializers import parse_variants
 from .tokens import estimate_tokens, trim_history
 from .variables import (
@@ -220,6 +221,11 @@ def stream_reply(
             updates = parse_updates(extractor.state_raw)
             if text or updates:
                 with SessionLocal() as db:
+                    conv_row = db.get(Conversation, conversation_id)
+                    if text and conv_row:
+                        text = apply_rules(
+                            load_rules(db, conv_row.character_id, "assistant"), text
+                        ).strip()
                     if text:
                         target = (
                             db.get(Message, target_message_id)

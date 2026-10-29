@@ -130,6 +130,22 @@ class FavoriteIn(BaseModel):
     favorite: bool
 
 
+class RegexIn(BaseModel):
+    name: str = ""
+    pattern: str
+    replacement: str = ""
+    scope: str = "assistant"
+    enabled: bool = True
+
+
+class RegexUpdate(BaseModel):
+    name: str | None = None
+    pattern: str | None = None
+    replacement: str | None = None
+    scope: str | None = None
+    enabled: bool | None = None
+
+
 class MemoryUpdate(BaseModel):
     content: str
 

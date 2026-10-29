@@ -46,6 +46,21 @@ class CharacterFavorite(Base):
     )
 
 
+class CharacterRegex(Base):
+    __tablename__ = "character_regex"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    character_id: Mapped[int] = mapped_column(
+        ForeignKey("characters.id"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(80), default="")
+    pattern: Mapped[str] = mapped_column(Text)
+    replacement: Mapped[str] = mapped_column(Text, default="")
+    scope: Mapped[str] = mapped_column(String(10), default="assistant")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class Conversation(Base):
     __tablename__ = "conversations"
 

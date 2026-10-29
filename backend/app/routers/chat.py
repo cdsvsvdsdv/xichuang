@@ -31,6 +31,7 @@ from ..serializers import (
     message_payload,
     parse_variants,
 )
+from ..regex_engine import apply_rules, load_rules
 from ..services import build_context, fill_placeholders, get_profile, stream_reply
 
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -295,6 +296,7 @@ async def chat(
             raise HTTPException(status_code=404, detail="角色不存在")
 
         model = payload.model or conversation.model
+        content = apply_rules(load_rules(db, character.id, "user"), content)
         db.add(
             Message(
                 conversation_id=conversation.id,

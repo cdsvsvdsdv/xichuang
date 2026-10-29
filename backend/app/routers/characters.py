@@ -13,11 +13,13 @@ from ..cleanup import purge_character
 from ..config import AVATARS_DIR
 from ..db import SessionLocal
 from ..providers import complete_chat
-from ..models import Character, CharacterFavorite, User, WorldEntry
+from ..models import Character, CharacterFavorite, CharacterRegex, User, WorldEntry
 from ..schemas import (
     CharacterCreate,
     CharacterUpdate,
     FavoriteIn,
+    RegexIn,
+    RegexUpdate,
     WorldEntryIn,
     WorldEntryUpdate,
 )
@@ -412,6 +414,114 @@ async def adapt_character(character_id: int, user: User = Depends(current_user))
         db.commit()
         db.refresh(character)
         return character_payload(character, character.id in _favorite_ids(db, user))
+
+
+def _regex_payload(rule: CharacterRegex) -> dict:
+    return {
+        "id": rule.id,
+        "name": rule.name or "",
+        "pattern": rule.pattern,
+        "replacement": rule.replacement or "",
+        "scope": rule.scope or "assistant",
+        "enabled": bool(rule.enabled),
+    }
+
+
+def _check_pattern(pattern: str) -> str:
+    pattern = (pattern or "").strip()
+    if not pattern:
+        raise HTTPException(status_code=400, detail="正则表达式不能为空")
+    if len(pattern) > 500:
+        raise HTTPException(status_code=400, detail="正则表达式太长（上限 500 字符）")
+    try:
+        re.compile(pattern)
+    except re.error as exc:
+        raise HTTPException(status_code=400, detail=f"正则语法错误：{exc}") from exc
+    return pattern
+
+
+@router.get("/characters/{character_id}/regex")
+def list_regex(character_id: int):
+    with SessionLocal() as db:
+        if not db.get(Character, character_id):
+            raise HTTPException(status_code=404, detail="角色不存在")
+        rows = db.scalars(
+            select(CharacterRegex)
+            .where(CharacterRegex.character_id == character_id)
+            .order_by(CharacterRegex.id)
+        ).all()
+        return [_regex_payload(row) for row in rows]
+
+
+@router.post("/characters/{character_id}/regex")
+def create_regex(
+    character_id: int, payload: RegexIn, user: User = Depends(current_user)
+):
+    with SessionLocal() as db:
+        character = db.get(Character, character_id)
+        if not character:
+            raise HTTPException(status_code=404, detail="角色不存在")
+        _require_manage(character, user)
+        scope = payload.scope if payload.scope in ("user", "assistant", "both") else "assistant"
+        rule = CharacterRegex(
+            character_id=character_id,
+            name=payload.name.strip()[:80],
+            pattern=_check_pattern(payload.pattern),
+            replacement=payload.replacement[:2000],
+            scope=scope,
+            enabled=payload.enabled,
+        )
+        db.add(rule)
+        db.commit()
+        db.refresh(rule)
+        return _regex_payload(rule)
+
+
+@router.patch("/regex/{rule_id}")
+def update_regex(
+    rule_id: int, payload: RegexUpdate, user: User = Depends(current_user)
+):
+    with SessionLocal() as db:
+        rule = db.get(CharacterRegex, rule_id)
+        if not rule:
+            raise HTTPException(status_code=404, detail="规则不存在")
+        character = db.get(Character, rule.character_id)
+        if not character:
+            raise HTTPException(status_code=404, detail="角色不存在")
+        _require_manage(character, user)
+
+        if payload.name is not None:
+            rule.name = payload.name.strip()[:80]
+        if payload.pattern is not None:
+            rule.pattern = _check_pattern(payload.pattern)
+        if payload.replacement is not None:
+            rule.replacement = payload.replacement[:2000]
+        if payload.scope is not None:
+            rule.scope = (
+                payload.scope
+                if payload.scope in ("user", "assistant", "both")
+                else rule.scope
+            )
+        if payload.enabled is not None:
+            rule.enabled = payload.enabled
+        db.commit()
+        db.refresh(rule)
+        return _regex_payload(rule)
+
+
+@router.delete("/regex/{rule_id}")
+def delete_regex(rule_id: int, user: User = Depends(current_user)):
+    with SessionLocal() as db:
+        rule = db.get(CharacterRegex, rule_id)
+        if not rule:
+            raise HTTPException(status_code=404, detail="规则不存在")
+        character = db.get(Character, rule.character_id)
+        if not character:
+            raise HTTPException(status_code=404, detail="角色不存在")
+        _require_manage(character, user)
+        db.delete(rule)
+        db.commit()
+        return {"ok": True}
 
 
 @router.get("/characters/{character_id}/world")

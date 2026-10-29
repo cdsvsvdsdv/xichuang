@@ -12,9 +12,48 @@ import { api, authHeaders, clearToken, getToken } from './api';
 
 const DEFAULT_MODEL = 'deepseek-chat';
 
+function stripWrappers(text) {
+  return text
+    .replace(/```[a-zA-Z]*/g, '')
+    .replace(/<\/?(?:infoblock|gametxt|thinking)>/gi, '')
+    .trim();
+}
+
+function buildStageDocument(content) {
+  if (!content) return '';
+  const lower = content.toLowerCase();
+  const starts = [lower.indexOf('<!doctype'), lower.indexOf('<html')].filter(
+    (index) => index >= 0
+  );
+  if (!starts.length) return stripWrappers(content);
+  const start = Math.min(...starts);
+  const end = lower.lastIndexOf('</html>');
+  if (end <= start) return stripWrappers(content.slice(start));
+
+  let doc = content.slice(start, end + 7);
+  const before = stripWrappers(content.slice(0, start));
+  const after = stripWrappers(content.slice(end + 7));
+
+  if (before) {
+    if (/<body[^>]*>/i.test(doc)) {
+      doc = doc.replace(/<body([^>]*)>/i, `<body$1>${before}`);
+    } else {
+      doc = doc.replace(/<html([^>]*)>/i, `<html$1><body>${before}</body>`);
+    }
+  }
+  if (after) {
+    if (/<\/body>/i.test(doc)) {
+      doc = doc.replace(/<\/body>/i, `${after}</body>`);
+    } else {
+      doc = doc.replace(/<\/html>/i, `${after}</html>`);
+    }
+  }
+  return doc;
+}
+
 function usableStageHtml(content) {
   if (!content || content.length < 400) return null;
-  const doc = extractHtmlDocument(content);
+  const doc = buildStageDocument(content);
   if (!/<html|<!doctype/i.test(doc)) return null;
   const text = doc
     .replace(/<script[\s\S]*?<\/script>/gi, '')

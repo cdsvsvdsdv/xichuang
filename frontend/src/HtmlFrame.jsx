@@ -102,13 +102,16 @@ const STUB = `<script>
 })();
 </script>`;
 
+const BASE_STYLE =
+  '<style>html,body{background-color:#050609;color-scheme:dark;}</style>';
+
 function buildDoc(html) {
   const meta = `<meta http-equiv="Content-Security-Policy" content="${CSP}">`;
   let doc = (html || '').replace(/\blocalStorage\b/g, '__xcStorage');
   if (/<head[^>]*>/i.test(doc)) {
-    doc = doc.replace(/<head([^>]*)>/i, `<head$1>${meta}${STUB}`);
+    doc = doc.replace(/<head([^>]*)>/i, `<head$1>${meta}${BASE_STYLE}${STUB}`);
   } else {
-    doc = `<!DOCTYPE html><html><head>${meta}${STUB}</head><body>${doc}</body></html>`;
+    doc = `<!DOCTYPE html><html><head>${meta}${BASE_STYLE}${STUB}</head><body>${doc}</body></html>`;
   }
   return doc;
 }

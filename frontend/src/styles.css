@@ -3445,3 +3445,15 @@ button {
 .chat-pane.card-stage .composer {
   flex: 0 0 auto;
 }
+
+.chat-pane.card-stage .chat-header {
+  order: -1;
+}
+
+.chat-pane.card-stage .card-stage-bg {
+  order: 0;
+}
+
+.chat-pane.card-stage .composer {
+  order: 2;
+}

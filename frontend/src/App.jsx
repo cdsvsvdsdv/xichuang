@@ -1191,6 +1191,14 @@ export default function App() {
             />
           </div>
         )}
+        {frontendCard && stageFrozen && (
+          <div className="stage-frozen-overlay">
+            <p>卡片界面已暂停（防止脚本卡顿）</p>
+            <button type="button" onClick={() => setStageFrozen(false)}>
+              启用交互
+            </button>
+          </div>
+        )}
         {frontendCard && (
           <button
             className="stage-freeze"

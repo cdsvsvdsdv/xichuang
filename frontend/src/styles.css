@@ -3548,3 +3548,9 @@ button {
   font-weight: 700;
   box-shadow: 0 12px 30px -14px hsla(var(--hue, 210), 90%, 55%, 0.9);
 }
+
+.gallery-user a.ghost-btn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}

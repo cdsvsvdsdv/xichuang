@@ -68,6 +68,14 @@ export default function Gallery({
           <p>挑一个角色，开始今天的对话</p>
         </div>
         <div className="gallery-user">
+          <a
+            className="ghost-btn"
+            href="https://tavern.pangyifan.cn"
+            target="_blank"
+            rel="noreferrer"
+          >
+            酒馆
+          </a>
           {user?.is_admin && (
             <button className="ghost-btn" onClick={onOpenInvites}>
               邀请码

@@ -1,7 +1,60 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
+import HtmlFrame from './HtmlFrame';
+
+function splitHtmlBlocks(content) {
+  const parts = [];
+  const pattern = /```([\s\S]*?)```/g;
+  let cursor = 0;
+  let match;
+  while ((match = pattern.exec(content)) !== null) {
+    const body = match[1].trim();
+    const isHtml = /^(<!doctype\s*html|<html|<style)/i.test(body);
+    if (!isHtml) continue;
+    if (match.index > cursor) {
+      parts.push({ type: 'text', value: content.slice(cursor, match.index) });
+    }
+    parts.push({ type: 'html', value: body });
+    cursor = pattern.lastIndex;
+  }
+  if (cursor < content.length) {
+    parts.push({ type: 'text', value: content.slice(cursor) });
+  }
+  return parts.length ? parts : [{ type: 'text', value: content }];
+}
+
+function MessageBody({ content }) {
+  const parts = useMemo(() => splitHtmlBlocks(content), [content]);
+  const hasHtml = parts.some((part) => part.type === 'html');
+  if (!hasHtml) {
+    return (
+      <div className="markdown">
+        <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+          {content}
+        </ReactMarkdown>
+      </div>
+    );
+  }
+  return (
+    <div className="msg-rich">
+      {parts.map((part, index) =>
+        part.type === 'html' ? (
+          <HtmlFrame key={index} html={part.value} />
+        ) : (
+          part.value.trim() && (
+            <div className="markdown" key={index}>
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                {part.value}
+              </ReactMarkdown>
+            </div>
+          )
+        )
+      )}
+    </div>
+  );
+}
 
 export default function Message({
   message,
@@ -84,13 +137,7 @@ export default function Message({
           <div className={`bubble ${message.role}`}>
             {isAssistant ? (
               message.content ? (
-                <div className="markdown">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm, remarkBreaks]}
-                  >
-                    {message.content}
-                  </ReactMarkdown>
-                </div>
+                <MessageBody content={message.content} />
               ) : (
                 <span className="typing">
                   <i />

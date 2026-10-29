@@ -3,6 +3,7 @@ import AdminPanel from './AdminPanel';
 import CharacterEditor from './CharacterEditor';
 import CharacterPanel from './CharacterPanel';
 import Gallery from './Gallery';
+import HtmlFrame from './HtmlFrame';
 import ImagePanel from './ImagePanel';
 import Login from './Login';
 import Message from './Message';
@@ -1040,6 +1041,17 @@ export default function App() {
               <h2>{activeCharacter.name}</h2>
               <p>{activeCharacter.tagline}</p>
               <p className="greeting">{currentGreeting}</p>
+              {activeCharacter.html_greeting && (
+                <div className="greeting-html">
+                  <p className="hint">
+                    这张卡自带前端界面，当前是只读预览（交互要等 B2）
+                  </p>
+                  <HtmlFrame
+                    html={activeCharacter.html_greeting}
+                    label="开场界面"
+                  />
+                </div>
+              )}
               {greetings.length > 1 && (
                 <button
                   className="ghost-btn greeting-switch"

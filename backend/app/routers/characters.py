@@ -201,6 +201,7 @@ def _create_character(
         default_model=fields.get("default_model") or "deepseek-chat",
         avatar_url=avatar_url or fields["avatar_url"],
         system_prompt=fields.get("system_prompt", ""),
+        html_greeting=fields.get("html_greeting", ""),
         tags=json.dumps(fields["tags"], ensure_ascii=False),
         alternates=json.dumps(fields["alternates"], ensure_ascii=False),
         created_by=created_by,

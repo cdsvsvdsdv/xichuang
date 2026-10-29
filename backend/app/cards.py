@@ -184,6 +184,29 @@ def _str_list(value) -> list[str]:
     return []
 
 
+def _extract_html_greeting(data: dict) -> str:
+    scripts = (data.get("extensions") or {}).get("regex_scripts") or []
+    candidates: list[tuple[int, int, str]] = []
+    for script in scripts:
+        if not isinstance(script, dict):
+            continue
+        replacement = str(script.get("replaceString") or "")
+        if "<!doctype html" not in replacement.lower() and "<html" not in replacement.lower():
+            continue
+        html = replacement.strip()
+        html = re.sub(r"^```[a-zA-Z]*\s*", "", html)
+        html = re.sub(r"\s*```$", "", html)
+        if "<html" not in html.lower():
+            continue
+        name = str(script.get("scriptName") or "")
+        priority = 2 if ("开局" in name or "开场" in name) else 1
+        candidates.append((priority, len(html), html[:200000]))
+    if not candidates:
+        return ""
+    candidates.sort(key=lambda item: (-item[0], -item[1]))
+    return candidates[0][2]
+
+
 def parse_card(payload: dict) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("角色卡必须是 JSON 对象")
@@ -242,6 +265,7 @@ def parse_card(payload: dict) -> dict:
         "avatar_url": avatar,
         "tagline": tagline,
         "system_prompt": _text(data.get("system_prompt"))[:3000],
+        "html_greeting": _extract_html_greeting(data),
         "world_entries": world_entries,
         "import_meta": {
             "world_entries": world_count,

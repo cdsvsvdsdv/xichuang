@@ -38,6 +38,7 @@ def character_payload(c: Character, favorite: bool | None = None) -> dict:
         "persona": c.persona,
         "default_model": c.default_model,
         "system_prompt": c.system_prompt or "",
+        "html_greeting": c.html_greeting or "",
         "avatar_url": c.avatar_url or "",
         "tags": _json_list(c.tags),
         "alternates": _json_list(c.alternates, keep_str_only=True),

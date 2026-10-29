@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from './api';
 
-export default function VariablePanel({ conversation, onClose }) {
+export default function VariablePanel({ conversation, onClose, embedded = false }) {
   const [rows, setRows] = useState([]);
   const [key, setKey] = useState('');
   const [value, setValue] = useState('');
@@ -70,12 +70,14 @@ export default function VariablePanel({ conversation, onClose }) {
     setError('');
   }
 
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+  const panel = (
+      <div
+        className={embedded ? 'panel-embed var-embed' : 'modal'}
+        onClick={embedded ? undefined : (e) => e.stopPropagation()}
+      >
         <div className="modal-head">
           <strong>状态 · {conversation.title}</strong>
-          <button onClick={onClose}>关闭</button>
+          {!embedded && <button onClick={onClose}>关闭</button>}
         </div>
 
         <p className="world-hint">
@@ -121,6 +123,13 @@ export default function VariablePanel({ conversation, onClose }) {
           ))}
         </div>
       </div>
+  );
+
+  if (embedded) return panel;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      {panel}
     </div>
   );
 }

@@ -19,7 +19,7 @@ const LOGIC_LABELS = {
   not_all: '副键非全部出现',
 };
 
-export default function WorldBook({ character, onClose }) {
+export default function WorldBook({ character, onClose, embedded = false }) {
   const [entries, setEntries] = useState([]);
   const [scope, setScope] = useState('character');
   const [form, setForm] = useState(EMPTY);
@@ -117,9 +117,11 @@ export default function WorldBook({ character, onClose }) {
     setError('');
   }
 
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal detail-modal" onClick={(e) => e.stopPropagation()}>
+  const panel = (
+      <div
+        className={embedded ? 'panel-embed world-embed' : 'modal detail-modal'}
+        onClick={embedded ? undefined : (e) => e.stopPropagation()}
+      >
         <div className="world-head">
           <h2>世界书 · {character.name}</h2>
           <div className="world-scope">
@@ -254,12 +256,21 @@ export default function WorldBook({ character, onClose }) {
           ))}
         </div>
 
-        <div className="modal-actions detail-actions">
-          <button className="ghost-btn" onClick={onClose}>
-            关闭
-          </button>
-        </div>
+        {!embedded && (
+          <div className="modal-actions detail-actions">
+            <button className="ghost-btn" onClick={onClose}>
+              关闭
+            </button>
+          </div>
+        )}
       </div>
+  );
+
+  if (embedded) return panel;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      {panel}
     </div>
   );
 }

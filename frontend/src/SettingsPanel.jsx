@@ -7,7 +7,7 @@ const THEMES = [
   { id: 'ocean', label: '海盐' },
 ];
 
-export default function SettingsPanel({ profile, onClose, onSave }) {
+export default function SettingsPanel({ profile, onClose, onSave, embedded = false }) {
   const [name, setName] = useState(profile.name || '');
   const [persona, setPersona] = useState(profile.persona || '');
   const [theme, setTheme] = useState(profile.theme || 'default');
@@ -27,7 +27,7 @@ export default function SettingsPanel({ profile, onClose, onSave }) {
         theme,
         background_url: backgroundUrl.trim(),
       });
-      onClose();
+      onClose?.();
     } catch (e) {
       setError(e.message);
     } finally {
@@ -35,12 +35,14 @@ export default function SettingsPanel({ profile, onClose, onSave }) {
     }
   }
 
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
+  const panel = (
+      <div
+        className={embedded ? 'panel-embed settings-embed' : 'modal settings-modal'}
+        onClick={embedded ? undefined : (e) => e.stopPropagation()}
+      >
         <div className="modal-head">
           <strong>设置</strong>
-          <button onClick={onClose}>关闭</button>
+          {!embedded && <button onClick={onClose}>关闭</button>}
         </div>
 
         <label className="field">
@@ -97,6 +99,13 @@ export default function SettingsPanel({ profile, onClose, onSave }) {
           </button>
         </div>
       </div>
+  );
+
+  if (embedded) return panel;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      {panel}
     </div>
   );
 }

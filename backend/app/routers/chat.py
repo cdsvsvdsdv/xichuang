@@ -8,6 +8,7 @@ from fastapi.responses import Response
 from sqlalchemy import select
 
 from ..auth import current_user, owned_conversation, owned_message
+from ..cleanup import purge_conversation
 from ..db import SessionLocal
 from ..deps import check_rate
 from ..models import (
@@ -30,7 +31,7 @@ from ..serializers import (
     message_payload,
     parse_variants,
 )
-from ..services import build_context, stream_reply
+from ..services import build_context, fill_placeholders, get_profile, stream_reply
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -68,6 +69,10 @@ def create_conversation(payload: ConversationCreate, user: User = Depends(curren
         greeting = (
             greetings[index] if 0 <= index < len(greetings) else character.greeting
         )
+        profile = get_profile(db, user.id)
+        greeting = fill_placeholders(
+            greeting, character.name, (profile.name or "").strip() or "你"
+        )
 
         conversation = Conversation(
             character_id=character.id,
@@ -77,19 +82,29 @@ def create_conversation(payload: ConversationCreate, user: User = Depends(curren
         )
         db.add(conversation)
         db.flush()
-        db.add(
-            Message(
-                conversation_id=conversation.id,
-                role="assistant",
-                content=greeting,
-                model=model,
-                variants=json.dumps([greeting], ensure_ascii=False),
-                active_variant=0,
+        if greeting.strip():
+            db.add(
+                Message(
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content=greeting,
+                    model=model,
+                    variants=json.dumps([greeting], ensure_ascii=False),
+                    active_variant=0,
+                )
             )
-        )
         db.commit()
         db.refresh(conversation)
         return conversation_payload(db, conversation)
+
+
+@router.delete("/conversations/{conversation_id}")
+def delete_conversation(conversation_id: int, user: User = Depends(current_user)):
+    with SessionLocal() as db:
+        conversation = owned_conversation(db, conversation_id, user)
+        purge_conversation(db, conversation.id)
+        db.commit()
+        return {"ok": True}
 
 
 @router.get("/conversations/{conversation_id}/messages")

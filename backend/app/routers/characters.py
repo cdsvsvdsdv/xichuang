@@ -9,10 +9,18 @@ from sqlalchemy import select
 
 from ..auth import current_user
 from ..cards import parse_card, parse_png_card, to_v2
+from ..cleanup import purge_character
 from ..config import AVATARS_DIR
 from ..db import SessionLocal
-from ..models import Character, WorldEntry
-from ..schemas import CharacterUpdate, FavoriteIn, WorldEntryIn, WorldEntryUpdate
+from ..providers import complete_chat
+from ..models import Character, CharacterFavorite, User, WorldEntry
+from ..schemas import (
+    CharacterCreate,
+    CharacterUpdate,
+    FavoriteIn,
+    WorldEntryIn,
+    WorldEntryUpdate,
+)
 from ..serializers import character_payload, world_payload
 from ..world import LOGIC_ANY, LOGIC_CHOICES
 
@@ -21,23 +29,106 @@ router = APIRouter(
 )
 
 
-@router.get("/characters")
-def list_characters():
-    with SessionLocal() as db:
-        rows = db.scalars(
-            select(Character).order_by(
-                Character.favorite.desc(), Character.sort_order, Character.id
+def _favorite_ids(db, user: User) -> set[int]:
+    return set(
+        db.scalars(
+            select(CharacterFavorite.character_id).where(
+                CharacterFavorite.user_id == user.id
             )
         ).all()
-        return [character_payload(row) for row in rows]
+    )
+
+
+def _can_manage(character: Character, user: User) -> bool:
+    return bool(user.is_admin) or (
+        character.created_by is not None and character.created_by == user.id
+    )
+
+
+def _require_manage(character: Character, user: User) -> None:
+    if not _can_manage(character, user):
+        raise HTTPException(
+            status_code=403, detail="只有创建者或管理员可以修改这个角色"
+        )
+
+
+@router.get("/characters")
+def list_characters(user: User = Depends(current_user)):
+    with SessionLocal() as db:
+        rows = db.scalars(
+            select(Character).order_by(Character.sort_order, Character.id)
+        ).all()
+        favorites = _favorite_ids(db, user)
+        payloads = [character_payload(row, row.id in favorites) for row in rows]
+
+    payloads.sort(key=lambda item: not item["favorite"])
+    return payloads
+
+
+@router.post("/characters")
+def create_character(payload: CharacterCreate, user: User = Depends(current_user)):
+    fields = {
+        "name": payload.name.strip()[:50],
+        "tagline": payload.tagline.strip()[:120],
+        "persona": payload.persona.strip()[:6000],
+        "greeting": payload.greeting.strip()[:6000],
+        "tags": [item.strip() for item in payload.tags if item.strip()][:8],
+        "alternates": [item.strip() for item in payload.alternates if item.strip()][
+            :10
+        ],
+        "avatar_url": payload.avatar_url.strip()[:500],
+        "system_prompt": payload.system_prompt.strip()[:3000],
+        "default_model": payload.default_model.strip()[:50] or "deepseek-chat",
+    }
+    if not fields["name"] or not fields["greeting"]:
+        raise HTTPException(status_code=400, detail="角色名和开场白不能为空")
+
+    with SessionLocal() as db:
+        character = _create_character(db, fields, created_by=user.id)
+        db.commit()
+        db.refresh(character)
+        return character_payload(character, False)
 
 
 @router.patch("/characters/{character_id}")
-def update_character(character_id: int, payload: CharacterUpdate):
+def update_character(
+    character_id: int,
+    payload: CharacterUpdate,
+    user: User = Depends(current_user),
+):
     with SessionLocal() as db:
         character = db.get(Character, character_id)
         if not character:
             raise HTTPException(status_code=404, detail="角色不存在")
+        _require_manage(character, user)
+
+        if payload.name is not None:
+            name = payload.name.strip()[:50]
+            if not name:
+                raise HTTPException(status_code=400, detail="角色名不能为空")
+            if name != character.name and db.scalar(
+                select(Character).where(
+                    Character.name == name, Character.id != character.id
+                )
+            ):
+                raise HTTPException(status_code=400, detail="角色名已被占用")
+            character.name = name
+        if payload.persona is not None:
+            character.persona = payload.persona.strip()[:6000]
+        if payload.greeting is not None:
+            greeting = payload.greeting.strip()
+            if not greeting:
+                raise HTTPException(status_code=400, detail="开场白不能为空")
+            character.greeting = greeting[:6000]
+        if payload.alternates is not None:
+            character.alternates = json.dumps(
+                [item.strip() for item in payload.alternates if item.strip()][:10],
+                ensure_ascii=False,
+            )
+        if payload.default_model is not None:
+            character.default_model = (
+                payload.default_model.strip()[:50] or character.default_model
+            )
         if payload.avatar_url is not None:
             character.avatar_url = payload.avatar_url.strip()[:500]
         if payload.tagline is not None:
@@ -47,26 +138,50 @@ def update_character(character_id: int, payload: CharacterUpdate):
             character.tags = json.dumps(tags, ensure_ascii=False)
         if payload.system_prompt is not None:
             character.system_prompt = payload.system_prompt.strip()[:3000]
+
         db.commit()
         db.refresh(character)
-        return character_payload(character)
+        return character_payload(
+            character, character.id in _favorite_ids(db, user)
+        )
 
 
-@router.post("/characters/{character_id}/favorite")
-def set_favorite(character_id: int, payload: FavoriteIn):
+@router.delete("/characters/{character_id}")
+def delete_character(character_id: int, user: User = Depends(current_user)):
     with SessionLocal() as db:
         character = db.get(Character, character_id)
         if not character:
             raise HTTPException(status_code=404, detail="角色不存在")
-        character.favorite = payload.favorite
+        _require_manage(character, user)
+        purge_character(db, character)
         db.commit()
-        db.refresh(character)
-        return character_payload(character)
+        return {"ok": True}
 
 
-def _create_character(db, fields: dict, avatar_url: str = "") -> Character:
-    if not fields["name"] or not fields["greeting"]:
-        raise HTTPException(status_code=400, detail="角色卡缺少角色名或开场白")
+@router.post("/characters/{character_id}/favorite")
+def set_favorite(
+    character_id: int, payload: FavoriteIn, user: User = Depends(current_user)
+):
+    with SessionLocal() as db:
+        character = db.get(Character, character_id)
+        if not character:
+            raise HTTPException(status_code=404, detail="角色不存在")
+
+        existing = db.get(CharacterFavorite, (user.id, character_id))
+        if payload.favorite and not existing:
+            db.add(CharacterFavorite(user_id=user.id, character_id=character_id))
+        elif not payload.favorite and existing:
+            db.delete(existing)
+
+        db.commit()
+        return character_payload(character, payload.favorite)
+
+
+def _create_character(
+    db, fields: dict, avatar_url: str = "", created_by: int | None = None
+) -> Character:
+    if not fields["name"]:
+        raise HTTPException(status_code=400, detail="角色卡缺少角色名")
 
     base = re.sub(r"（\d+）$", "", fields["name"]) or fields["name"]
     name = base
@@ -81,32 +196,56 @@ def _create_character(db, fields: dict, avatar_url: str = "") -> Character:
         tagline=fields["tagline"],
         persona=fields["persona"],
         greeting=fields["greeting"],
-        default_model="deepseek-chat",
+        default_model=fields.get("default_model") or "deepseek-chat",
         avatar_url=avatar_url or fields["avatar_url"],
         system_prompt=fields.get("system_prompt", ""),
         tags=json.dumps(fields["tags"], ensure_ascii=False),
         alternates=json.dumps(fields["alternates"], ensure_ascii=False),
+        created_by=created_by,
     )
     db.add(character)
     return character
 
 
+def _add_world_entries(db, character_id: int, entries: list[dict]) -> None:
+    for item in entries:
+        db.add(
+            WorldEntry(
+                character_id=character_id,
+                keywords=json.dumps(item["keywords"], ensure_ascii=False),
+                keywords_secondary=json.dumps(
+                    item["keywords_secondary"], ensure_ascii=False
+                ),
+                logic=item["logic"],
+                depth=item["depth"],
+                sticky=item["sticky"],
+                content=item["content"],
+                constant=item["constant"],
+                enabled=item["enabled"],
+            )
+        )
+
+
 @router.post("/characters/import")
-def import_character(payload: dict):
+def import_character(payload: dict, user: User = Depends(current_user)):
     try:
         fields = parse_card(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     with SessionLocal() as db:
-        character = _create_character(db, fields)
+        character = _create_character(db, fields, created_by=user.id)
+        db.flush()
+        _add_world_entries(db, character.id, fields.get("world_entries", []))
         db.commit()
         db.refresh(character)
-        return character_payload(character)
+        result = character_payload(character, False)
+        result["import_meta"] = fields.get("import_meta")
+        return result
 
 
 @router.post("/characters/import-png")
-async def import_character_png(request: Request):
+async def import_character_png(request: Request, user: User = Depends(current_user)):
     data = await request.body()
     if not data:
         raise HTTPException(status_code=400, detail="没有收到图片内容")
@@ -122,10 +261,16 @@ async def import_character_png(request: Request):
     (AVATARS_DIR / filename).write_bytes(data)
 
     with SessionLocal() as db:
-        character = _create_character(db, fields, f"/media/avatars/{filename}")
+        character = _create_character(
+            db, fields, f"/media/avatars/{filename}", created_by=user.id
+        )
+        db.flush()
+        _add_world_entries(db, character.id, fields.get("world_entries", []))
         db.commit()
         db.refresh(character)
-        return character_payload(character)
+        result = character_payload(character, False)
+        result["import_meta"] = fields.get("import_meta")
+        return result
 
 
 @router.get("/characters/{character_id}/export")
@@ -146,6 +291,127 @@ def export_character(character_id: int):
         payload["avatar_url"],
         payload["system_prompt"],
     )
+
+
+def _adapt_source(character: Character, entries: list[WorldEntry]) -> str:
+    parts = [f"角色名：{character.name}"]
+    if character.tagline:
+        parts.append(f"简介：{character.tagline}")
+    if character.persona.strip():
+        parts.append(f"原人设：\n{character.persona[:1500]}")
+    if character.greeting.strip():
+        parts.append(f"原开场白：\n{character.greeting[:1200]}")
+
+    def score(entry: WorldEntry) -> int:
+        comment = entry.comment if hasattr(entry, "comment") else ""
+        text = (comment or "") + " " + (entry.keywords or "")
+        value = 0
+        for word in ("人设", "序章", "大纲", "铁则", "主角", "夏恋", "私奔"):
+            if word in text:
+                value += 2
+        if entry.constant:
+            value += 1
+        return value
+
+    candidates = sorted(entries, key=lambda item: (-score(item), item.id))
+    budget = 6500
+    picked = 0
+    for entry in candidates:
+        keys = json.loads(entry.keywords or "[]")
+        if not keys:
+            continue
+        content = (entry.content or "").strip()
+        if not content:
+            continue
+        snippet = content[:900]
+        user_entry = bool(
+            {"我", "<user>", "user", "主角"} & set(keys)
+        ) or "用户人设" in content[:80] or "主角：" in content[:40]
+        label = "用户人设（用户扮演，你不要扮演）" if user_entry else "设定"
+        parts.append(f"【{label}：{'/'.join(keys[:3])}】\n{snippet}")
+        budget -= len(snippet)
+        picked += 1
+        if budget <= 0 or picked >= 12:
+            break
+
+    return "\n\n".join(parts)
+
+
+@router.post("/characters/{character_id}/adapt")
+async def adapt_character(character_id: int, user: User = Depends(current_user)):
+    with SessionLocal() as db:
+        character = db.get(Character, character_id)
+        if not character:
+            raise HTTPException(status_code=404, detail="角色不存在")
+        _require_manage(character, user)
+        entries = list(
+            db.scalars(
+                select(WorldEntry).where(WorldEntry.character_id == character_id)
+            ).all()
+        )
+        source = _adapt_source(character, entries)
+        name = character.name
+
+    system = (
+        "你是角色卡适配器。用户会给你一张酒馆角色卡的信息，请把它改写成"
+        "适合纯文本 AI 角色聊天使用的设定。要求：\n"
+        "0. 你要扮演的是角色卡里的主要角色（{{char}}），用户扮演主角/用户自己。"
+        "如果卡里写的是用户视角的故事，绝对不要把用户当成你要扮演的角色；"
+        "标注为「用户人设」的内容只作为你的对话对象参考。"
+        "如果卡里没有明确指定你扮演谁，就选择与用户关系最密切、戏份最多的女性角色来扮演。\n"
+        "1. 全部使用简体中文；\n"
+        "2. 不输出 HTML、Markdown、代码块、选项按钮、BGM、变量标签或任何界面控制符；\n"
+        "3. 保留原作的核心世界观、人物关系、性格与说话风格，删掉只服务于界面和游戏机制的内容；\n"
+        "4. persona 用第二人称「你是……」写，800-1500 字，包含身份、外貌、性格、说话方式、"
+        "与用户的关系和当前处境；\n"
+        "5. greeting 写 300-600 字的小说式开场场景，直接渲染画面和氛围，不要提问、不要解释设定；\n"
+        "6. tagline 是不超过 20 字的简介；\n"
+        "7. 只输出 JSON，格式为 "
+        '{"tagline": "...", "persona": "...", "greeting": "..."}'
+    )
+
+    try:
+        raw = await complete_chat(
+            "deepseek-chat",
+            [
+                {"role": "system", "content": system},
+                {"role": "user", "content": source},
+            ],
+            max_tokens=2600,
+            temperature=0.65,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"AI 适配失败：{exc}") from exc
+
+    text = raw.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", text)
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        raise HTTPException(status_code=502, detail="AI 返回格式不正确，请重试")
+    try:
+        data = json.loads(text[start : end + 1])
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail="AI 返回内容无法解析，请重试") from exc
+
+    persona = str(data.get("persona") or "").strip()[:6000]
+    greeting = str(data.get("greeting") or "").strip()[:6000]
+    tagline = str(data.get("tagline") or "").strip()[:120]
+    if not persona or not greeting:
+        raise HTTPException(status_code=502, detail="AI 没有生成完整的人设或开场白，请重试")
+
+    with SessionLocal() as db:
+        character = db.get(Character, character_id)
+        if not character:
+            raise HTTPException(status_code=404, detail="角色不存在")
+        character.persona = persona
+        character.greeting = greeting
+        if tagline:
+            character.tagline = tagline
+        db.commit()
+        db.refresh(character)
+        return character_payload(character, character.id in _favorite_ids(db, user))
 
 
 @router.get("/characters/{character_id}/world")

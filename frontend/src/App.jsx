@@ -1,28 +1,39 @@
 import { useEffect, useRef, useState } from 'react';
 import AdminPanel from './AdminPanel';
-import CharacterDetail from './CharacterDetail';
 import CharacterEditor from './CharacterEditor';
+import CharacterPanel from './CharacterPanel';
+import Gallery from './Gallery';
 import ImagePanel from './ImagePanel';
 import Login from './Login';
 import Message from './Message';
 import SettingsPanel from './SettingsPanel';
-import VariablePanel from './VariablePanel';
-import WorldBook from './WorldBook';
 import { api, authHeaders, clearToken, getToken } from './api';
 
 const DEFAULT_MODEL = 'deepseek-chat';
+
+function hueOf(character) {
+  const text = `${character?.id || ''}${character?.name || ''}`;
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) % 360;
+  }
+  return hash;
+}
 
 function Avatar({ character, index = 0, small = false, big = false }) {
   const cls = `avatar${small ? ' small' : ''}${big ? ' big' : ''}`;
   if (character?.avatar_url) {
     return (
-      <span className={`${cls} with-img`}>
+      <span className={`${cls} with-img`} style={{ '--hue': hueOf(character) }}>
         <img src={character.avatar_url} alt="" />
       </span>
     );
   }
   return (
-    <span className={`${cls} hue-${index % 4}`}>
+    <span
+      className={`${cls} hue-${index % 4}`}
+      style={{ '--hue': hueOf(character) }}
+    >
       {character?.name.slice(0, 1)}
     </span>
   );
@@ -71,11 +82,10 @@ export default function App() {
     theme: 'default',
     background_url: '',
   });
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [view, setView] = useState('gallery');
+  const [leftTab, setLeftTab] = useState('chats');
   const [adminOpen, setAdminOpen] = useState(false);
-  const [detailCharacter, setDetailCharacter] = useState(null);
-  const [worldCharacter, setWorldCharacter] = useState(null);
-  const [variablesOpen, setVariablesOpen] = useState(false);
+  const [panelVersion, setPanelVersion] = useState(0);
   const [exportOpen, setExportOpen] = useState(false);
   const [greetingIndex, setGreetingIndex] = useState(0);
   const [editingFactId, setEditingFactId] = useState(null);
@@ -102,7 +112,7 @@ export default function App() {
     setCharacters(chars);
     setModels(mods);
     setProfile(prof);
-    if (chars.length) selectCharacter(chars[0]);
+    setView('gallery');
   }
 
   function handleAuthFailure(e) {
@@ -171,13 +181,14 @@ export default function App() {
     activeConvIdRef.current = null;
     setMessages([]);
     setModel(character.default_model || DEFAULT_MODEL);
+    setView('chat');
+    setLeftTab('editor');
     setSidebarOpen(false);
     setMemoryOpen(false);
     setMemory(null);
     setImageOpen(false);
     setSearch('');
     setGreetingIndex(0);
-    setDetailCharacter(null);
     setNearBottom(true);
     setLoadingMessages(true);
     try {
@@ -459,9 +470,6 @@ export default function App() {
         );
       });
       if (activeCharacter?.id === updated.id) setActiveCharacter(updated);
-      setDetailCharacter((prev) =>
-        prev && prev.id === updated.id ? updated : prev
-      );
       showToast(updated.favorite ? '已收藏' : '已取消收藏');
     } catch (e) {
       setError(e.message);
@@ -469,15 +477,104 @@ export default function App() {
   }
 
   async function saveCharacter(id, data) {
-    const updated = await api(`/api/characters/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
+    const updated = id
+      ? await api(`/api/characters/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(data),
+        })
+      : await api('/api/characters', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        });
+    setCharacters((prev) =>
+      id
+        ? prev.map((c) => (c.id === updated.id ? updated : c))
+        : [...prev, updated]
+    );
+    if (activeCharacter?.id === updated.id) setActiveCharacter(updated);
+    showToast(id ? '角色已保存' : '角色已创建');
+    return updated;
+  }
+
+  function canManageCharacter(character) {
+    return (
+      Boolean(user?.is_admin) ||
+      (character?.created_by != null && character.created_by === user?.id)
+    );
+  }
+
+  async function applyCharacter(data) {
+    let character = activeCharacter;
+    if (!character) return;
+    if (canManageCharacter(character)) {
+      character = await saveCharacter(character.id, data);
+    }
+    const conversation = await api('/api/conversations', {
+      method: 'POST',
+      body: JSON.stringify({
+        character_id: character.id,
+        model,
+        greeting_index: 0,
+      }),
     });
+    setConversations((prev) => [conversation, ...prev]);
+    await openConversation(conversation);
+    setLeftTab('chats');
+    showToast('已开始新对话');
+  }
+
+  async function adaptCharacter() {
+    if (!activeCharacter) return null;
+    const updated = await api(
+      `/api/characters/${activeCharacter.id}/adapt`,
+      { method: 'POST' }
+    );
     setCharacters((prev) =>
       prev.map((c) => (c.id === updated.id ? updated : c))
     );
-    if (activeCharacter?.id === updated.id) setActiveCharacter(updated);
-    showToast('角色已更新');
+    setActiveCharacter(updated);
+    setPanelVersion((value) => value + 1);
+    showToast('AI 适配完成，检查一下人设和开场白');
+    return updated;
+  }
+
+  async function deleteCharacter(character) {
+    if (
+      !window.confirm(
+        `删除角色「${character.name}」？所有人与它的对话也会一起删除，且无法恢复。`
+      )
+    ) {
+      return;
+    }
+    try {
+      await api(`/api/characters/${character.id}`, { method: 'DELETE' });
+      setCharacters((prev) => prev.filter((c) => c.id !== character.id));
+      if (activeCharacter?.id === character.id) {
+        setActiveCharacter(null);
+        setActiveConversation(null);
+        setMessages([]);
+        setConversations([]);
+        setView('gallery');
+      }
+      showToast('角色已删除');
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  function logout() {
+    clearToken();
+    setUser(null);
+    setActiveCharacter(null);
+    setActiveConversation(null);
+    setMessages([]);
+    setConversations([]);
+    setView('gallery');
+  }
+
+  function backToGallery() {
+    setView('gallery');
+    setSidebarOpen(false);
   }
 
   async function importCard(file) {
@@ -514,7 +611,17 @@ export default function App() {
       }
 
       setCharacters((prev) => [...prev, created]);
-      showToast(`已导入「${created.name}」`);
+      const meta = created.import_meta || {};
+      let message = `已导入「${created.name}」`;
+      if (meta.world_entries) message += ` · ${meta.world_entries} 条世界书`;
+      if (meta.frontend_card) message += ' · 前端卡仅导入文本部分';
+      showToast(message);
+
+      if (meta.needs_adaptation) {
+        setError(
+          '这张卡的人设是空的（内容写在界面/世界书里）。可以打开编辑面板补充人设，或者稍后用「AI 适配」自动改写。'
+        );
+      }
     } catch (e) {
       setError(e.message || '导入失败，请检查角色卡格式');
     }
@@ -686,139 +793,143 @@ export default function App() {
     );
   }
 
+  if (view === 'gallery') {
+    return (
+      <div className={`app theme-${profile.theme || 'default'}`}>
+        <Gallery
+          characters={characters}
+          user={user}
+          onStart={selectCharacter}
+          onFavorite={toggleFavorite}
+          onEdit={(character) => setEditingCharacter(character)}
+          onExport={exportCard}
+          onDelete={deleteCharacter}
+          onImport={importCard}
+          onCreate={() => setEditingCharacter('new')}
+          onOpenInvites={() => setAdminOpen(true)}
+          onLogout={logout}
+        />
+
+        {error && (
+          <div className="error-bar gallery-error">
+            <span>{error}</span>
+            <button onClick={() => setError('')}>关闭</button>
+          </div>
+        )}
+
+        {editingCharacter && (
+          <CharacterEditor
+            character={editingCharacter === 'new' ? null : editingCharacter}
+            onClose={() => setEditingCharacter(null)}
+            onSave={saveCharacter}
+          />
+        )}
+
+        {adminOpen && <AdminPanel onClose={() => setAdminOpen(false)} />}
+        {toast && <div className="toast">{toast}</div>}
+      </div>
+    );
+  }
+
   return (
     <div className={`app theme-${profile.theme || 'default'}`}>
       {sidebarOpen && (
         <div className="scrim" onClick={() => setSidebarOpen(false)} />
       )}
 
-      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
-        <div>
-          <h1 className="brand">
-            西窗<span>.</span>
-          </h1>
-          <p className="brand-sub">和朋友一起玩角色对话</p>
-        </div>
-
-        <div className="sidebar-label label-row">
-          <span>角色</span>
-          <button
-            className="link-btn"
-            onClick={() => fileInputRef.current?.click()}
-            title="导入角色卡（JSON / PNG）"
-          >
-            导入
+      <aside className={`sidebar panel-sidebar ${sidebarOpen ? 'open' : ''}`}>
+        <div className="panel-head">
+          <button className="ghost-btn back-gallery" onClick={backToGallery}>
+            ← 画廊
           </button>
-        </div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".json,.png,application/json,image/png"
-          hidden
-          onChange={(e) => {
-            importCard(e.target.files?.[0]);
-            e.target.value = '';
-          }}
-        />
-        <div className="char-list">
-          {characters.map((c, i) => (
-            <div
-              key={c.id}
-              className={`char ${activeCharacter?.id === c.id ? 'active' : ''}`}
+          <div className="panel-tabs">
+            <button
+              className={leftTab === 'chats' ? 'active' : ''}
+              onClick={() => setLeftTab('chats')}
             >
-              <button className="char-main" onClick={() => selectCharacter(c)}>
-                <Avatar character={c} index={i} />
-                <span className="char-info">
-                  <strong>{c.name}</strong>
-                  <small>{c.tagline}</small>
-                  {c.tags?.length > 0 && (
-                    <span className="tag-row">
-                      {c.tags.slice(0, 3).map((tag) => (
-                        <em key={tag}>{tag}</em>
-                      ))}
-                    </span>
-                  )}
-                </span>
-              </button>
-              <span className="char-tools">
-                <button
-                  onClick={() => toggleFavorite(c)}
-                  title={c.favorite ? '取消收藏' : '收藏'}
-                >
-                  {c.favorite ? '★' : '☆'}
-                </button>
-                <button
-                  onClick={() => setEditingCharacter(c)}
-                  title="编辑角色"
-                >
-                  ⋯
-                </button>
-              </span>
-            </div>
-          ))}
+              会话
+            </button>
+            <button
+              className={leftTab === 'editor' ? 'active' : ''}
+              onClick={() => setLeftTab('editor')}
+            >
+              编辑
+            </button>
+            <button
+              className={leftTab === 'settings' ? 'active' : ''}
+              onClick={() => setLeftTab('settings')}
+            >
+              设置
+            </button>
+          </div>
         </div>
 
-        <div className="sidebar-label">会话</div>
-        <input
-          className="search-input"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="搜索会话…"
-        />
-        <button className="new-conv" onClick={startNewConversation}>
-          新对话
-        </button>
-        <div className="conv-list">
-          {visibleConversations.map((conv) => (
-            <button
-              key={conv.id}
-              className={`conv ${
-                activeConversation?.id === conv.id ? 'active' : ''
-              }`}
-              onClick={() => openConversation(conv)}
-            >
-              <span className="conv-top">
-                <span className="conv-title">{conv.title}</span>
-                <small>{formatTime(conv.updated_at)}</small>
-              </span>
-              <span className="conv-preview">
-                {conv.last_message || '还没有消息'}
-              </span>
-            </button>
-          ))}
-          {!visibleConversations.length && (
-            <p className="empty-hint">
-              {conversations.length ? '没有匹配的会话' : '还没有会话'}
-            </p>
+        <div className="panel-content">
+          {leftTab === 'chats' && (
+            <>
+              <div className="sidebar-label label-row">
+                <span>会话 · {activeCharacter?.name || '未选角色'}</span>
+                <button className="link-btn" onClick={startNewConversation}>
+                  新建
+                </button>
+              </div>
+              <input
+                className="search-input"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="搜索会话…"
+              />
+              <div className="conv-list">
+                {visibleConversations.map((conv) => (
+                  <button
+                    key={conv.id}
+                    className={`conv ${
+                      activeConversation?.id === conv.id ? 'active' : ''
+                    }`}
+                    onClick={() => openConversation(conv)}
+                  >
+                    <span className="conv-top">
+                      <span className="conv-title">{conv.title}</span>
+                      <small>{formatTime(conv.updated_at)}</small>
+                    </span>
+                    <span className="conv-preview">
+                      {conv.last_message || '还没有消息'}
+                    </span>
+                  </button>
+                ))}
+                {!visibleConversations.length && (
+                  <p className="empty-hint">
+                    {conversations.length ? '没有匹配的会话' : '还没有会话'}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+
+          {leftTab === 'editor' && (
+            <CharacterPanel
+              key={`${activeCharacter?.id}-${panelVersion}`}
+              character={activeCharacter}
+              conversation={activeConversation}
+              canManage={canManageCharacter(activeCharacter)}
+              onSave={(data) => saveCharacter(activeCharacter.id, data)}
+              onApply={applyCharacter}
+              onAdapt={adaptCharacter}
+            />
+          )}
+
+          {leftTab === 'settings' && (
+            <SettingsPanel embedded profile={profile} onSave={saveProfile} />
           )}
         </div>
 
-        <div className="sidebar-footer">
+        <div className="panel-footer">
           {user?.is_admin && (
-            <button
-              className="settings-btn"
-              onClick={() => setAdminOpen(true)}
-            >
+            <button className="settings-btn" onClick={() => setAdminOpen(true)}>
               邀请码
             </button>
           )}
-          <button
-            className="settings-btn"
-            onClick={() => setSettingsOpen(true)}
-          >
-            设置
-          </button>
-          <button
-            className="settings-btn"
-            onClick={() => {
-              clearToken();
-              setUser(null);
-              setActiveConversation(null);
-              setMessages([]);
-              setConversations([]);
-            }}
-            title={`当前账号：${user.username}`}
-          >
+          <button className="settings-btn" onClick={logout}>
             {user.username} · 退出
           </button>
         </div>
@@ -826,15 +937,16 @@ export default function App() {
 
       <main
         className="chat-pane"
-        style={
-          profile.background_url
+        style={{
+          '--hue': hueOf(activeCharacter),
+          ...(profile.background_url
             ? {
                 backgroundImage: `linear-gradient(rgba(8, 9, 13, 0.82), rgba(8, 9, 13, 0.92)), url(${profile.background_url})`,
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
               }
-            : undefined
-        }
+            : {}),
+        }}
       >
         <header className="chat-header">
           <button
@@ -848,9 +960,12 @@ export default function App() {
           </button>
           <button
             className="chat-title"
-            onClick={() =>
-              activeCharacter && setDetailCharacter(activeCharacter)
-            }
+            onClick={() => {
+              if (!activeCharacter) return;
+              setLeftTab('editor');
+              setSidebarOpen(true);
+            }}
+            title="打开角色编辑"
           >
             {activeCharacter && (
               <Avatar character={activeCharacter} index={activeIndex} small />
@@ -872,14 +987,6 @@ export default function App() {
             {activeConversation && (
               <button className="memory-btn" onClick={openMemory}>
                 记忆
-              </button>
-            )}
-            {activeConversation && (
-              <button
-                className="memory-btn"
-                onClick={() => setVariablesOpen(true)}
-              >
-                状态
               </button>
             )}
             {activeConversation && (
@@ -1088,14 +1195,6 @@ export default function App() {
         </div>
       )}
 
-      {editingCharacter && (
-        <CharacterEditor
-          character={editingCharacter}
-          onClose={() => setEditingCharacter(null)}
-          onSave={saveCharacter}
-        />
-      )}
-
       {imageOpen && activeConversation && (
         <ImagePanel
           conversation={activeConversation}
@@ -1103,51 +1202,7 @@ export default function App() {
         />
       )}
 
-      {settingsOpen && (
-        <SettingsPanel
-          profile={profile}
-          onClose={() => setSettingsOpen(false)}
-          onSave={saveProfile}
-        />
-      )}
-
       {adminOpen && <AdminPanel onClose={() => setAdminOpen(false)} />}
-
-      {detailCharacter && (
-        <CharacterDetail
-          character={detailCharacter}
-          hue={hue}
-          onClose={() => setDetailCharacter(null)}
-          onEdit={() => {
-            setEditingCharacter(detailCharacter);
-            setDetailCharacter(null);
-          }}
-          onFavorite={() => toggleFavorite(detailCharacter)}
-          onExport={() => exportCard(detailCharacter)}
-          onWorld={() => {
-            setWorldCharacter(detailCharacter);
-            setDetailCharacter(null);
-          }}
-          onStart={() => {
-            setDetailCharacter(null);
-            startNewConversation();
-          }}
-        />
-      )}
-
-      {worldCharacter && (
-        <WorldBook
-          character={worldCharacter}
-          onClose={() => setWorldCharacter(null)}
-        />
-      )}
-
-      {variablesOpen && activeConversation && (
-        <VariablePanel
-          conversation={activeConversation}
-          onClose={() => setVariablesOpen(false)}
-        />
-      )}
 
       {toast && <div className="toast">{toast}</div>}
     </div>

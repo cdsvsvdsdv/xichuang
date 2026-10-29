@@ -53,6 +53,10 @@ def ensure_schema() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE characters ADD COLUMN system_prompt TEXT NOT NULL DEFAULT ''"
             )
+        if "created_by" not in character_columns:
+            conn.exec_driver_sql(
+                "ALTER TABLE characters ADD COLUMN created_by INTEGER"
+            )
 
         if "memory_updated_at" not in columns:
             conn.exec_driver_sql(

@@ -29,7 +29,7 @@ def profile_payload(profile: Profile) -> dict:
     }
 
 
-def character_payload(c: Character) -> dict:
+def character_payload(c: Character, favorite: bool | None = None) -> dict:
     return {
         "id": c.id,
         "name": c.name,
@@ -41,7 +41,8 @@ def character_payload(c: Character) -> dict:
         "avatar_url": c.avatar_url or "",
         "tags": _json_list(c.tags),
         "alternates": _json_list(c.alternates, keep_str_only=True),
-        "favorite": bool(c.favorite),
+        "favorite": bool(c.favorite) if favorite is None else bool(favorite),
+        "created_by": c.created_by,
     }
 
 

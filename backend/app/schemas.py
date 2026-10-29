@@ -102,11 +102,28 @@ class WorldEntryUpdate(BaseModel):
     enabled: bool | None = None
 
 
+class CharacterCreate(BaseModel):
+    name: str
+    tagline: str = ""
+    persona: str = ""
+    greeting: str
+    tags: list[str] = []
+    alternates: list[str] = []
+    avatar_url: str = ""
+    system_prompt: str = ""
+    default_model: str = "deepseek-chat"
+
+
 class CharacterUpdate(BaseModel):
+    name: str | None = None
     avatar_url: str | None = None
     tagline: str | None = None
+    persona: str | None = None
+    greeting: str | None = None
     tags: list[str] | None = None
+    alternates: list[str] | None = None
     system_prompt: str | None = None
+    default_model: str | None = None
 
 
 class FavoriteIn(BaseModel):

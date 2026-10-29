@@ -29,6 +29,58 @@ from .world import (
 )
 
 
+class BlockFilter:
+    """流式剥离指定标签块（例如模型内联的 <thinking>）。"""
+
+    def __init__(self, open_tag: str, close_tag: str) -> None:
+        self.open_tag = open_tag
+        self.close_tag = close_tag
+        self.buffer = ""
+        self.inside = False
+
+    @staticmethod
+    def _held_tail(text: str, tag: str) -> int:
+        for size in range(min(len(tag) - 1, len(text)), 0, -1):
+            if text.endswith(tag[:size]):
+                return size
+        return 0
+
+    def feed(self, piece: str) -> str:
+        self.buffer += piece
+        out: list[str] = []
+
+        while True:
+            if not self.inside:
+                index = self.buffer.find(self.open_tag)
+                if index == -1:
+                    hold = self._held_tail(self.buffer, self.open_tag)
+                    if hold:
+                        out.append(self.buffer[:-hold])
+                        self.buffer = self.buffer[-hold:]
+                    else:
+                        out.append(self.buffer)
+                        self.buffer = ""
+                    break
+                out.append(self.buffer[:index])
+                self.buffer = self.buffer[index + len(self.open_tag) :]
+                self.inside = True
+            else:
+                index = self.buffer.find(self.close_tag)
+                if index == -1:
+                    hold = self._held_tail(self.buffer, self.close_tag)
+                    self.buffer = self.buffer[-hold:] if hold else ""
+                    break
+                self.buffer = self.buffer[index + len(self.close_tag) :]
+                self.inside = False
+
+        return "".join(out)
+
+    def flush(self) -> str:
+        tail = "" if self.inside else self.buffer
+        self.buffer = ""
+        return tail
+
+
 def get_profile(db, user_id: int) -> Profile:
     profile = db.scalars(select(Profile).where(Profile.user_id == user_id)).first()
     if not profile:
@@ -39,6 +91,17 @@ def get_profile(db, user_id: int) -> Profile:
     return profile
 
 
+def fill_placeholders(text: str, char_name: str, user_name: str) -> str:
+    if not text:
+        return ""
+    return (
+        text.replace("{{char}}", char_name)
+        .replace("<char>", char_name)
+        .replace("{{user}}", user_name)
+        .replace("<user>", user_name)
+    )
+
+
 def build_system_prompt(
     ch: Character,
     summary: str = "",
@@ -47,13 +110,15 @@ def build_system_prompt(
     world: str = "",
     variables: str = "",
 ) -> str:
-    custom = (ch.system_prompt or "").strip()
+    user_name = ((profile.name or "").strip() if profile else "") or "你"
+    persona = fill_placeholders(ch.persona, ch.name, user_name)
+    custom = fill_placeholders((ch.system_prompt or "").strip(), ch.name, user_name)
     if custom:
-        parts = [custom, f"角色设定：{ch.persona}"]
+        parts = [custom, f"角色设定：{persona}"]
     else:
         parts = [
             f"你正在扮演「{ch.name}」，与用户进行沉浸式角色对话。",
-            f"角色设定：{ch.persona}",
+            f"角色设定：{persona}",
             "对话要求：",
             "1. 始终以第一人称、保持角色身份和语气，不要提及 AI、模型或提示词。",
             "2. 回复自然口语化，长度以 2-4 段为宜，除非用户要求展开。",
@@ -75,7 +140,7 @@ def build_system_prompt(
         parts.append("【长期记忆 · 已知事实】\n" + "\n".join(f"- {f}" for f in facts))
     if summary or facts:
         parts.append("请在对话中自然运用这些记忆，不要生硬复述。")
-    return "\n".join(parts)
+    return fill_placeholders("\n".join(parts), ch.name, user_name)
 
 
 def build_context(
@@ -126,11 +191,12 @@ def stream_reply(
     async def event_stream():
         parts: list[str] = []
         extractor = StateExtractor()
+        thinking = BlockFilter("<thinking>", "</thinking>")
         try:
             async for piece in stream_chat(
                 model, [{"role": "system", "content": system_prompt}, *history]
             ):
-                clean = extractor.feed(piece)
+                clean = extractor.feed(thinking.feed(piece))
                 if clean:
                     parts.append(clean)
                     yield "data: " + json.dumps(
@@ -143,7 +209,7 @@ def stream_reply(
                 {"type": "error", "message": str(exc)}, ensure_ascii=False
             ) + "\n\n"
         finally:
-            tail = extractor.flush()
+            tail = extractor.feed(thinking.flush()) + extractor.flush()
             if tail:
                 parts.append(tail)
                 yield "data: " + json.dumps(

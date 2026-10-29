@@ -14,9 +14,41 @@ const DEFAULT_MODEL = 'deepseek-chat';
 
 function stripWrappers(text) {
   return text
+    .replace(/<(BGM|MP4|事件触发)[^>]*>[\s\S]*?<\/\1>/gi, '')
+    .replace(/^\s*（补充说明）.*$/gm, '')
+    .replace(/^\s*-{3,}\s*$/gm, '')
     .replace(/```[a-zA-Z]*/g, '')
     .replace(/<\/?(?:infoblock|gametxt|thinking)>/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+function proseOnly(text) {
+  return text
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => /[一-龥]{2,}/.test(line) && !/[{}]/.test(line))
+    .join('\n')
+    .trim();
+}
+
+function outsideText(content) {
+  if (!content) return '';
+  const lower = content.toLowerCase();
+  const starts = [lower.indexOf('<!doctype'), lower.indexOf('<html')].filter(
+    (index) => index >= 0
+  );
+  if (!starts.length) return '';
+  const start = Math.min(...starts);
+  const end = lower.lastIndexOf('</html>');
+  if (end <= start) return '';
+  return proseOnly(
+    stripWrappers(`${content.slice(0, start)}\n${content.slice(end + 7)}`)
+  );
 }
 
 function buildStageDocument(content) {
@@ -29,33 +61,14 @@ function buildStageDocument(content) {
   const start = Math.min(...starts);
   const end = lower.lastIndexOf('</html>');
   if (end <= start) return stripWrappers(content.slice(start));
-
-  let doc = content.slice(start, end + 7);
-  const before = stripWrappers(content.slice(0, start));
-  const after = stripWrappers(content.slice(end + 7));
-
-  if (before) {
-    if (/<body[^>]*>/i.test(doc)) {
-      doc = doc.replace(/<body([^>]*)>/i, `<body$1>${before}`);
-    } else {
-      doc = doc.replace(/<html([^>]*)>/i, `<html$1><body>${before}</body>`);
-    }
-  }
-  if (after) {
-    if (/<\/body>/i.test(doc)) {
-      doc = doc.replace(/<\/body>/i, `${after}</body>`);
-    } else {
-      doc = doc.replace(/<\/html>/i, `${after}</html>`);
-    }
-  }
-  return doc;
+  return content.slice(start, end + 7);
 }
 
 function usableStageHtml(content) {
   if (!content || content.length < 400) return null;
   const doc = buildStageDocument(content);
   if (!/<html|<!doctype/i.test(doc)) return null;
-  const text = doc
+  const text = `${doc} ${outsideText(content)}`
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<style[\s\S]*?<\/style>/gi, '')
     .replace(/<[^>]+>/g, '')
@@ -989,6 +1002,7 @@ export default function App() {
   const visibleMessages = stageMessage
     ? messages.filter((m) => m.id !== stageMessage.id)
     : messages;
+  const stageStory = stageMessage ? outsideText(stageMessage.content) : '';
 
   if (!authReady) {
     return <div className="login-page" />;
@@ -1171,6 +1185,11 @@ export default function App() {
             />
           </div>
         )}
+        {frontendCard && stageStory && (
+          <div className="card-story">
+            <div className="card-story-inner">{stageStory}</div>
+          </div>
+        )}
         <header className="chat-header">
           <button
             className="menu-btn"
@@ -1329,6 +1348,9 @@ export default function App() {
             <span>我：</span>
             {sentNote}
           </div>
+        )}
+        {frontendCard && streaming && (
+          <div className="card-loading">正在生成卡片回复…</div>
         )}
 
         <footer className="composer">

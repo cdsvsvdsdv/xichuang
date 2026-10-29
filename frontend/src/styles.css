@@ -3457,3 +3457,38 @@ button {
 .chat-pane.card-stage .composer {
   order: 2;
 }
+
+.chat-pane.card-stage .card-story {
+  order: 1;
+  flex: 0 0 auto;
+  max-height: 30vh;
+  overflow-y: auto;
+  padding: 0.85rem clamp(1rem, 4vw, 3rem);
+  background: rgba(8, 10, 14, 0.92);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.card-story-inner {
+  max-width: 72rem;
+  margin: 0 auto;
+  font-family: Georgia, "Noto Serif SC", "Songti SC", serif;
+  line-height: 1.9;
+  font-size: 0.95rem;
+  white-space: pre-wrap;
+}
+
+.card-loading {
+  position: absolute;
+  left: 50%;
+  bottom: 6.2rem;
+  z-index: 4;
+  padding: 0.35rem 0.85rem;
+  transform: translateX(-50%);
+  background: rgba(8, 10, 14, 0.86);
+  border: 1px solid hsla(var(--hue, 210), 90%, 70%, 0.35);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  backdrop-filter: blur(8px);
+}

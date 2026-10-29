@@ -3284,3 +3284,24 @@ button {
   color: var(--text);
   font-size: 0.75rem;
 }
+
+.msg:has(.html-frame) {
+  align-items: flex-start;
+}
+
+.msg:has(.html-frame) .msg-main {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 100%;
+}
+
+.bubble:has(.html-frame) {
+  width: 100%;
+  max-width: min(96%, 60rem);
+}
+
+@media (max-width: 760px) {
+  .bubble:has(.html-frame) {
+    max-width: 100%;
+  }
+}

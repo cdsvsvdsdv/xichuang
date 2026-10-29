@@ -210,12 +210,34 @@ def _create_character(
         avatar_url=avatar_url or fields["avatar_url"],
         system_prompt=fields.get("system_prompt", ""),
         html_greeting=fields.get("html_greeting", ""),
+        card_rules=fields.get("card_rules", ""),
         tags=json.dumps(fields["tags"], ensure_ascii=False),
         alternates=json.dumps(fields["alternates"], ensure_ascii=False),
         created_by=created_by,
     )
     db.add(character)
     return character
+
+
+def _add_card_regex(db, character_id: int, scripts: list[dict]) -> None:
+    for item in scripts:
+        pattern = (item.get("pattern") or "").strip()
+        if not pattern:
+            continue
+        try:
+            re.compile(pattern)
+        except re.error:
+            continue
+        db.add(
+            CharacterRegex(
+                character_id=character_id,
+                name=item.get("name", "")[:80],
+                pattern=pattern[:2000],
+                replacement=(item.get("replacement") or "")[:20000],
+                scope=item.get("scope") or "assistant",
+                enabled=True,
+            )
+        )
 
 
 def _add_world_entries(db, character_id: int, entries: list[dict]) -> None:
@@ -248,6 +270,7 @@ def import_character(payload: dict, user: User = Depends(current_user)):
         character = _create_character(db, fields, created_by=user.id)
         db.flush()
         _add_world_entries(db, character.id, fields.get("world_entries", []))
+        _add_card_regex(db, character.id, fields.get("regex_scripts", []))
         db.commit()
         db.refresh(character)
         result = character_payload(character, False)
@@ -277,6 +300,7 @@ async def import_character_png(request: Request, user: User = Depends(current_us
         )
         db.flush()
         _add_world_entries(db, character.id, fields.get("world_entries", []))
+        _add_card_regex(db, character.id, fields.get("regex_scripts", []))
         db.commit()
         db.refresh(character)
         result = character_payload(character, False)

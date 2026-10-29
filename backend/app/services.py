@@ -113,6 +113,11 @@ def build_system_prompt(
 ) -> str:
     user_name = ((profile.name or "").strip() if profile else "") or "你"
     persona = fill_placeholders(ch.persona, ch.name, user_name)
+    if not persona.strip() and (ch.html_greeting or "").strip():
+        persona = (
+            "你正在以这张角色卡中的角色身份与用户互动。"
+            "必须严格遵守卡片的输出格式要求，不要输出格式之外的解释。"
+        )
     custom = fill_placeholders((ch.system_prompt or "").strip(), ch.name, user_name)
     if custom:
         parts = [custom, f"角色设定：{persona}"]
@@ -130,6 +135,15 @@ def build_system_prompt(
         parts.append(world)
     if variables:
         parts.append(variables)
+    card_rules = fill_placeholders(
+        (getattr(ch, "card_rules", "") or "").strip(), ch.name, user_name
+    )
+    if card_rules:
+        parts.append(
+            "【卡片输出格式 · 最高优先级】\n"
+            "以下规则来自角色卡，优先于其他格式要求；每次回复必须按它输出：\n"
+            + card_rules
+        )
     if profile and (profile.name.strip() or profile.persona.strip()):
         user_block = f"【用户人设】\n用户称呼：{profile.name or '用户'}"
         if profile.persona.strip():

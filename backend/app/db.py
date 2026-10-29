@@ -61,6 +61,10 @@ def ensure_schema() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE characters ADD COLUMN html_greeting TEXT NOT NULL DEFAULT ''"
             )
+        if "card_rules" not in character_columns:
+            conn.exec_driver_sql(
+                "ALTER TABLE characters ADD COLUMN card_rules TEXT NOT NULL DEFAULT ''"
+            )
 
         if "memory_updated_at" not in columns:
             conn.exec_driver_sql(

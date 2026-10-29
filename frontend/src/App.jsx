@@ -12,6 +12,19 @@ import { api, authHeaders, clearToken, getToken } from './api';
 
 const DEFAULT_MODEL = 'deepseek-chat';
 
+function extractHtmlDocument(content) {
+  if (!content) return '';
+  const lower = content.toLowerCase();
+  const candidates = [lower.indexOf('<!doctype'), lower.indexOf('<html')].filter(
+    (index) => index >= 0
+  );
+  if (!candidates.length) return content;
+  const start = Math.min(...candidates);
+  const end = lower.lastIndexOf('</html>');
+  if (end > start) return content.slice(start, end + 7);
+  return content.slice(start);
+}
+
 function hueOf(character) {
   const text = `${character?.id || ''}${character?.name || ''}`;
   let hash = 0;
@@ -87,6 +100,7 @@ export default function App() {
   const [leftTab, setLeftTab] = useState('chats');
   const [adminOpen, setAdminOpen] = useState(false);
   const [panelVersion, setPanelVersion] = useState(0);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [greetingIndex, setGreetingIndex] = useState(0);
   const [editingFactId, setEditingFactId] = useState(null);
@@ -903,7 +917,7 @@ export default function App() {
         )
     : null;
   const stageHtml = stageMessage
-    ? stageMessage.content
+    ? extractHtmlDocument(stageMessage.content)
     : activeCharacter?.html_greeting || '';
   const visibleMessages = stageMessage
     ? messages.filter((m) => m.id !== stageMessage.id)
@@ -1168,7 +1182,7 @@ export default function App() {
 
         <div
           className={`messages ${
-            frontendCard && !visibleMessages.length ? 'messages-hidden' : ''
+            frontendCard && !historyOpen ? 'messages-hidden' : ''
           }`}
           ref={messagesRef}
           onScroll={onMessagesScroll}
@@ -1270,6 +1284,15 @@ export default function App() {
             )}
           </div>
           <div className="composer-meta">
+            {frontendCard && (
+              <button
+                className="history-toggle"
+                onClick={() => setHistoryOpen((value) => !value)}
+                type="button"
+              >
+                {historyOpen ? '收起历史' : '历史记录'}
+              </button>
+            )}
             <span>Enter 发送 · Shift+Enter 换行</span>
             <span>{input.length}/4000</span>
           </div>

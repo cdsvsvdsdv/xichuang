@@ -184,6 +184,56 @@ def _str_list(value) -> list[str]:
     return []
 
 
+def _collect_card_rules(data: dict) -> str:
+    entries = (data.get("character_book") or {}).get("entries") or []
+    parts: list[str] = []
+    total = 0
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        content = str(entry.get("content") or "").strip()
+        if not content or not _is_ui_rule(content):
+            continue
+        snippet = content[:4000]
+        if total + len(snippet) > 12000:
+            break
+        parts.append(snippet)
+        total += len(snippet)
+    return "\n\n".join(parts)
+
+
+def _convert_regex_scripts(data: dict) -> list[dict]:
+    scripts = (data.get("extensions") or {}).get("regex_scripts") or []
+    converted: list[dict] = []
+    for script in scripts:
+        if not isinstance(script, dict):
+            continue
+        pattern = str(script.get("findRegex") or "").strip()
+        if not pattern:
+            continue
+        if pattern.startswith("/") and pattern.rfind("/") > 0:
+            last = pattern.rfind("/")
+            flags = pattern[last + 1 :]
+            body = pattern[1:last]
+            if body and set(flags) <= set("gimsuy"):
+                pattern = body
+        replacement = str(script.get("replaceString") or "")
+        placement = script.get("placement") or []
+        is_assistant = 2 in placement or "2" in [str(item) for item in placement]
+        if not is_assistant:
+            # 只用于处理用户输入的卡片正则不导入，避免污染聊天记录
+            continue
+        converted.append(
+            {
+                "name": str(script.get("scriptName") or "")[:80],
+                "pattern": pattern[:2000],
+                "replacement": replacement[:20000],
+                "scope": "assistant",
+            }
+        )
+    return converted
+
+
 def _extract_html_greeting(data: dict) -> str:
     scripts = (data.get("extensions") or {}).get("regex_scripts") or []
     candidates: list[tuple[int, int, str]] = []
@@ -266,6 +316,8 @@ def parse_card(payload: dict) -> dict:
         "tagline": tagline,
         "system_prompt": _text(data.get("system_prompt"))[:3000],
         "html_greeting": _extract_html_greeting(data),
+        "card_rules": _collect_card_rules(data) if frontend else "",
+        "regex_scripts": _convert_regex_scripts(data) if frontend else [],
         "world_entries": world_entries,
         "import_meta": {
             "world_entries": world_count,

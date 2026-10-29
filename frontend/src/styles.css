@@ -3383,3 +3383,18 @@ button {
     height: 100%;
   }
 }
+
+.history-toggle {
+  padding: 0.12rem 0.55rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.66rem;
+  opacity: 1;
+}
+
+.history-toggle:hover {
+  color: var(--text);
+  border-color: hsla(var(--hue, 210), 90%, 70%, 0.4);
+}

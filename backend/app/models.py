@@ -33,6 +33,7 @@ class Character(Base):
     favorite: Mapped[bool] = mapped_column(Boolean, default=False)
     system_prompt: Mapped[str] = mapped_column(Text, default="")
     html_greeting: Mapped[str] = mapped_column(Text, default="")
+    card_rules: Mapped[str] = mapped_column(Text, default="")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

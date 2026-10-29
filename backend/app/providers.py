@@ -61,7 +61,7 @@ async def stream_chat(model: str, messages: list[dict]) -> AsyncIterator[str]:
         "messages": messages,
         "stream": True,
         "temperature": 1.0,
-        "max_tokens": 1600,
+        "max_tokens": 4000,
     }
     timeout = httpx.Timeout(connect=15, read=None, write=30, pool=15)
 

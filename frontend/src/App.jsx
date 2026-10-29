@@ -12,6 +12,19 @@ import { api, authHeaders, clearToken, getToken } from './api';
 
 const DEFAULT_MODEL = 'deepseek-chat';
 
+function usableStageHtml(content) {
+  if (!content || content.length < 400) return null;
+  const doc = extractHtmlDocument(content);
+  if (!/<html|<!doctype/i.test(doc)) return null;
+  const text = doc
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&[a-z]+;/gi, ' ')
+    .replace(/\s+/g, '');
+  return text.length > 120 ? doc : null;
+}
+
 function extractHtmlDocument(content) {
   if (!content) return '';
   const lower = content.toLowerCase();
@@ -101,6 +114,7 @@ export default function App() {
   const [adminOpen, setAdminOpen] = useState(false);
   const [panelVersion, setPanelVersion] = useState(0);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [sentNote, setSentNote] = useState('');
   const [exportOpen, setExportOpen] = useState(false);
   const [greetingIndex, setGreetingIndex] = useState(0);
   const [editingFactId, setEditingFactId] = useState(null);
@@ -115,6 +129,7 @@ export default function App() {
   const inputRef = useRef(null);
   const abortRef = useRef(null);
   const toastTimer = useRef(null);
+  const sentTimer = useRef(null);
   const activeConvIdRef = useRef(null);
   const bridgeConvRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -349,7 +364,17 @@ export default function App() {
       const conversationId = body.conversation_id;
       if (conversationId && activeConvIdRef.current === conversationId) {
         api(`/api/conversations/${conversationId}/messages`)
-          .then(setMessages)
+          .then((list) => {
+            setMessages(list);
+            const last = list[list.length - 1];
+            if (
+              activeCharacter?.html_greeting &&
+              last?.role === 'assistant' &&
+              !usableStageHtml(last.content)
+            ) {
+              setHistoryOpen(true);
+            }
+          })
           .catch(() => {});
       }
       refreshConversations();
@@ -362,6 +387,9 @@ export default function App() {
 
     setError('');
     setInput('');
+    setSentNote(text);
+    clearTimeout(sentTimer.current);
+    sentTimer.current = setTimeout(() => setSentNote(''), 6000);
 
     let conv = activeConversation;
     try {
@@ -906,19 +934,19 @@ export default function App() {
     : conversations;
 
   const frontendCard = Boolean(activeCharacter?.html_greeting);
-  const stageMessage = frontendCard
-    ? [...messages]
-        .reverse()
-        .find(
-          (m) =>
-            m.role === 'assistant' &&
-            m.content?.length > 600 &&
-            /<div[^>]*style=|<html|```html|<!doctype/i.test(m.content)
-        )
-    : null;
-  const stageHtml = stageMessage
-    ? extractHtmlDocument(stageMessage.content)
-    : activeCharacter?.html_greeting || '';
+  let stageMessage = null;
+  let stageHtml = frontendCard ? activeCharacter?.html_greeting || '' : '';
+  if (frontendCard) {
+    for (const message of [...messages].reverse()) {
+      if (message.role !== 'assistant') continue;
+      const doc = usableStageHtml(message.content);
+      if (doc) {
+        stageMessage = message;
+        stageHtml = doc;
+        break;
+      }
+    }
+  }
   const visibleMessages = stageMessage
     ? messages.filter((m) => m.id !== stageMessage.id)
     : messages;
@@ -1254,6 +1282,13 @@ export default function App() {
           <div className="error-bar">
             <span>{error}</span>
             <button onClick={() => setError('')}>关闭</button>
+          </div>
+        )}
+
+        {frontendCard && sentNote && (
+          <div className="sent-preview">
+            <span>我：</span>
+            {sentNote}
           </div>
         )}
 

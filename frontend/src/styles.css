@@ -3398,3 +3398,28 @@ button {
   color: var(--text);
   border-color: hsla(var(--hue, 210), 90%, 70%, 0.4);
 }
+
+.sent-preview {
+  position: absolute;
+  left: 50%;
+  bottom: 6.2rem;
+  z-index: 3;
+  max-width: min(80%, 40rem);
+  padding: 0.38rem 0.9rem;
+  transform: translateX(-50%);
+  background: rgba(8, 9, 13, 0.82);
+  border: 1px solid hsla(var(--hue, 210), 90%, 70%, 0.3);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.sent-preview span {
+  color: var(--accent);
+}

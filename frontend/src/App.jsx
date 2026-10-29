@@ -167,6 +167,7 @@ export default function App() {
   const [panelVersion, setPanelVersion] = useState(0);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [sentNote, setSentNote] = useState('');
+  const [stageFrozen, setStageFrozen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [greetingIndex, setGreetingIndex] = useState(0);
   const [editingFactId, setEditingFactId] = useState(null);
@@ -263,6 +264,7 @@ export default function App() {
     setActiveConversation(null);
     activeConvIdRef.current = null;
     bridgeConvRef.current = null;
+    setStageFrozen(false);
     setMessages([]);
     setModel(character.default_model || DEFAULT_MODEL);
     setView('chat');
@@ -1182,8 +1184,18 @@ export default function App() {
               label="卡片界面"
               onRequest={handleCardBridge}
               bare
+              frozen={stageFrozen}
             />
           </div>
+        )}
+        {frontendCard && (
+          <button
+            className="stage-freeze"
+            onClick={() => setStageFrozen((value) => !value)}
+            type="button"
+          >
+            {stageFrozen ? '恢复动画' : '冻结动画'}
+          </button>
         )}
         {frontendCard && stageStory && (
           <div className="card-story">

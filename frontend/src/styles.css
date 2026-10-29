@@ -3492,3 +3492,23 @@ button {
   font-size: 0.75rem;
   backdrop-filter: blur(8px);
 }
+
+.stage-freeze {
+  position: absolute;
+  top: 4.6rem;
+  right: 0.8rem;
+  z-index: 5;
+  padding: 0.25rem 0.7rem;
+  background: rgba(8, 10, 14, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.stage-freeze:hover {
+  color: var(--text);
+  border-color: hsla(var(--hue, 210), 90%, 70%, 0.4);
+}

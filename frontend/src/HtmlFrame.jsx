@@ -116,7 +116,13 @@ function buildDoc(html) {
   return doc;
 }
 
-export default function HtmlFrame({ html, label = 'HTML 界面', onRequest, bare = false }) {
+export default function HtmlFrame({
+  html,
+  label = 'HTML 界面',
+  onRequest,
+  bare = false,
+  frozen = false,
+}) {
   const [showSource, setShowSource] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -184,7 +190,7 @@ export default function HtmlFrame({ html, label = 'HTML 界面', onRequest, bare
         <iframe
           ref={iframeRef}
           title={label}
-          sandbox="allow-scripts allow-modals"
+          sandbox={frozen ? '' : 'allow-scripts allow-modals'}
           srcDoc={srcdoc}
           referrerPolicy="no-referrer"
         />

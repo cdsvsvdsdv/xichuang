@@ -22,6 +22,7 @@ from ..models import (
 from ..schemas import (
     ChatIn,
     ConversationCreate,
+    MessageCreate,
     MessageUpdate,
     RegenerateIn,
     SwipeIn,
@@ -83,7 +84,7 @@ def create_conversation(payload: ConversationCreate, user: User = Depends(curren
         )
         db.add(conversation)
         db.flush()
-        if greeting.strip():
+        if greeting.strip() and not payload.skip_greeting:
             db.add(
                 Message(
                     conversation_id=conversation.id,
@@ -113,6 +114,33 @@ def list_messages(conversation_id: int, user: User = Depends(current_user)):
     with SessionLocal() as db:
         conversation = owned_conversation(db, conversation_id, user)
         return [message_payload(m) for m in conversation.messages]
+
+
+@router.post("/conversations/{conversation_id}/messages")
+def append_message(
+    conversation_id: int,
+    payload: MessageCreate,
+    user: User = Depends(current_user),
+):
+    role = payload.role if payload.role in ("assistant", "user", "system") else "assistant"
+    content = payload.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="消息不能为空")
+    with SessionLocal() as db:
+        conversation = owned_conversation(db, conversation_id, user)
+        message = Message(
+            conversation_id=conversation.id,
+            role=role,
+            content=content,
+            model=conversation.model,
+            variants=json.dumps([content], ensure_ascii=False),
+            active_variant=0,
+        )
+        db.add(message)
+        conversation.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(message)
+        return message_payload(message)
 
 
 @router.patch("/messages/{message_id}")

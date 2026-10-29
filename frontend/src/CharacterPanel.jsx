@@ -161,10 +161,16 @@ export default function CharacterPanel({
                   disabled={Boolean(busy)}
                   type="button"
                 >
-                  {busy === 'adapt' ? 'AI 适配中…' : 'AI 适配这张卡'}
+                  {busy === 'adapt'
+                    ? 'AI 适配中…'
+                    : character.html_greeting
+                      ? 'AI 适配（纯文本备用）'
+                      : 'AI 适配这张卡'}
                 </button>
                 <span className="panel-hint">
-                  把酒馆前端卡改写成纯文本人设和开场白
+                  {character.html_greeting
+                    ? '这张卡有原版前端界面，会优先展示；适配只用于备用'
+                    : '把酒馆前端卡改写成纯文本人设和开场白'}
                 </span>
               </div>
             )}

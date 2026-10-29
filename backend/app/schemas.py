@@ -38,6 +38,18 @@ class ConversationCreate(BaseModel):
     character_id: int
     model: str | None = None
     greeting_index: int | None = None
+    skip_greeting: bool = False
+
+
+class MessageCreate(BaseModel):
+    role: str = "assistant"
+    content: str
+
+
+class CardGenerateIn(BaseModel):
+    prompt: str
+    conversation_id: int | None = None
+    character_id: int | None = None
 
 
 class ChatIn(BaseModel):

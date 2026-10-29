@@ -4,6 +4,14 @@ import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import HtmlFrame from './HtmlFrame';
 
+function stripControlTags(text) {
+  return text
+    .replace(/<事件触发[^>]*>[\s\S]*?<\/事件触发>/gi, '')
+    .replace(/<\/?(?:gametxt|infoblock|thinking)>/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function splitHtmlBlocks(content) {
   const parts = [];
   const pattern = /```([\s\S]*?)```/g;
@@ -22,10 +30,29 @@ function splitHtmlBlocks(content) {
   if (cursor < content.length) {
     parts.push({ type: 'text', value: content.slice(cursor) });
   }
-  return parts.length ? parts : [{ type: 'text', value: content }];
+
+  if (!parts.some((part) => part.type === 'html')) {
+    const inline = content.search(/<div[^>]*style=/i);
+    if (inline >= 0 && content.length - inline > 300) {
+      const head = stripControlTags(content.slice(0, inline));
+      const html = content.slice(inline);
+      return [
+        ...(head ? [{ type: 'text', value: head }] : []),
+        { type: 'html', value: html },
+      ];
+    }
+  }
+
+  return parts.length
+    ? parts.map((part) =>
+        part.type === 'text'
+          ? { ...part, value: stripControlTags(part.value) }
+          : part
+      )
+    : [{ type: 'text', value: stripControlTags(content) }];
 }
 
-function MessageBody({ content }) {
+function MessageBody({ content, onRequest }) {
   const parts = useMemo(() => splitHtmlBlocks(content), [content]);
   const hasHtml = parts.some((part) => part.type === 'html');
   if (!hasHtml) {
@@ -41,7 +68,7 @@ function MessageBody({ content }) {
     <div className="msg-rich">
       {parts.map((part, index) =>
         part.type === 'html' ? (
-          <HtmlFrame key={index} html={part.value} />
+          <HtmlFrame key={index} html={part.value} onRequest={onRequest} />
         ) : (
           part.value.trim() && (
             <div className="markdown" key={index}>
@@ -68,6 +95,7 @@ export default function Message({
   onEdit,
   onDelete,
   onIllustrate,
+  onCardRequest,
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
@@ -137,7 +165,10 @@ export default function Message({
           <div className={`bubble ${message.role}`}>
             {isAssistant ? (
               message.content ? (
-                <MessageBody content={message.content} />
+                <MessageBody
+                  content={message.content}
+                  onRequest={onCardRequest}
+                />
               ) : (
                 <span className="typing">
                   <i />

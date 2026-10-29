@@ -102,6 +102,7 @@ export default function App() {
   const abortRef = useRef(null);
   const toastTimer = useRef(null);
   const activeConvIdRef = useRef(null);
+  const bridgeConvRef = useRef(null);
   const fileInputRef = useRef(null);
 
   async function loadData() {
@@ -180,6 +181,7 @@ export default function App() {
     setActiveCharacter(character);
     setActiveConversation(null);
     activeConvIdRef.current = null;
+    bridgeConvRef.current = null;
     setMessages([]);
     setModel(character.default_model || DEFAULT_MODEL);
     setView('chat');
@@ -209,6 +211,7 @@ export default function App() {
   async function openConversation(conversation) {
     setActiveConversation(conversation);
     activeConvIdRef.current = conversation.id;
+    bridgeConvRef.current = conversation;
     setModel(conversation.model || DEFAULT_MODEL);
     setSidebarOpen(false);
     setMemoryOpen(false);
@@ -229,6 +232,7 @@ export default function App() {
   function startNewConversation() {
     setActiveConversation(null);
     activeConvIdRef.current = null;
+    bridgeConvRef.current = null;
     setMessages([]);
     setInput('');
     setSidebarOpen(false);
@@ -539,6 +543,121 @@ export default function App() {
     return updated;
   }
 
+  async function ensureBridgeConversation() {
+    if (bridgeConvRef.current) return bridgeConvRef.current;
+    if (activeConversation) {
+      bridgeConvRef.current = activeConversation;
+      return activeConversation;
+    }
+    if (!activeCharacter) return null;
+    const conversation = await api('/api/conversations', {
+      method: 'POST',
+      body: JSON.stringify({
+        character_id: activeCharacter.id,
+        skip_greeting: true,
+      }),
+    });
+    setConversations((prev) => [conversation, ...prev]);
+    setActiveConversation(conversation);
+    activeConvIdRef.current = conversation.id;
+    bridgeConvRef.current = conversation;
+    return conversation;
+  }
+
+  function toTavernMessage(message, index) {
+    return {
+      message: message.content,
+      name: message.role === 'user' ? 'User' : activeCharacter?.name || '',
+      role: message.role,
+      is_user: message.role === 'user',
+      is_system: message.role === 'system',
+      message_id: index,
+      data: {},
+      id: message.id,
+    };
+  }
+
+  async function handleCardBridge(method, args) {
+    if (method === 'generate' || method === 'generateRaw') {
+      const config = args[0];
+      let prompt = '';
+      if (typeof config === 'string') {
+        prompt = config;
+      } else if (config && Array.isArray(config.injects)) {
+        prompt = config.injects
+          .map((item) => item?.content || '')
+          .filter(Boolean)
+          .join('\n\n');
+      } else if (config && typeof config.prompt === 'string') {
+        prompt = config.prompt;
+      }
+      if (!prompt.trim()) throw new Error('没有可用的生成提示');
+      const result = await api('/api/cards/generate', {
+        method: 'POST',
+        body: JSON.stringify({
+          prompt,
+          conversation_id: bridgeConvRef.current?.id ?? null,
+          character_id: activeCharacter?.id ?? null,
+        }),
+      });
+      return result.text;
+    }
+
+    if (method === 'getChatMessages') {
+      const conversation = await ensureBridgeConversation();
+      if (!conversation) return [];
+      const list = await api(
+        `/api/conversations/${conversation.id}/messages`
+      );
+      if (activeConvIdRef.current === conversation.id) setMessages(list);
+      if (!list.length) {
+        return [toTavernMessage({ id: 0, role: 'assistant', content: '' }, 0)];
+      }
+      return list.map(toTavernMessage);
+    }
+
+    if (method === 'setChatMessages') {
+      const list = args[0] || [];
+      const conversation = await ensureBridgeConversation();
+      if (!conversation || !list.length) return true;
+      const current = await api(
+        `/api/conversations/${conversation.id}/messages`
+      );
+      const content = String(list[0]?.message || '');
+      if (current.length) {
+        await api(`/api/messages/${current[0].id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ content }),
+        });
+      } else if (content.trim()) {
+        await api(`/api/conversations/${conversation.id}/messages`, {
+          method: 'POST',
+          body: JSON.stringify({ role: 'assistant', content }),
+        });
+      }
+      const fresh = await api(
+        `/api/conversations/${conversation.id}/messages`
+      );
+      if (activeConvIdRef.current === conversation.id) setMessages(fresh);
+      refreshConversations();
+      return true;
+    }
+
+    if (method === 'getVariables') {
+      if (!bridgeConvRef.current) return {};
+      const rows = await api(
+        `/api/conversations/${bridgeConvRef.current.id}/variables`
+      );
+      return Object.fromEntries(rows.map((row) => [row.key, row.value]));
+    }
+
+    if (method === 'setVariables') return true;
+    if (method === 'getLorebookEntries') return [];
+    if (method === 'setLorebookEntries') return true;
+
+    throw new Error(`不支持的方法：${method}`);
+  }
+
   async function deleteCharacter(character) {
     if (
       !window.confirm(
@@ -615,14 +734,8 @@ export default function App() {
       const meta = created.import_meta || {};
       let message = `已导入「${created.name}」`;
       if (meta.world_entries) message += ` · ${meta.world_entries} 条世界书`;
-      if (meta.frontend_card) message += ' · 前端卡仅导入文本部分';
+      if (created.html_greeting) message += ' · 已保留原版前端界面';
       showToast(message);
-
-      if (meta.needs_adaptation) {
-        setError(
-          '这张卡的人设是空的（内容写在界面/世界书里）。可以打开编辑面板补充人设，或者稍后用「AI 适配」自动改写。'
-        );
-      }
     } catch (e) {
       setError(e.message || '导入失败，请检查角色卡格式');
     }
@@ -1049,6 +1162,7 @@ export default function App() {
                   <HtmlFrame
                     html={activeCharacter.html_greeting}
                     label="开场界面"
+                    onRequest={handleCardBridge}
                   />
                 </div>
               )}
@@ -1080,6 +1194,7 @@ export default function App() {
               onEdit={editMessage}
               onDelete={deleteMessage}
               onIllustrate={() => setImageOpen(true)}
+              onCardRequest={handleCardBridge}
             />
           ))}
           <div ref={bottomRef} />

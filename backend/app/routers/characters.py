@@ -13,8 +13,16 @@ from ..cleanup import purge_character
 from ..config import AVATARS_DIR
 from ..db import SessionLocal
 from ..providers import complete_chat
-from ..models import Character, CharacterFavorite, CharacterRegex, User, WorldEntry
+from ..models import (
+    Character,
+    CharacterFavorite,
+    CharacterRegex,
+    Conversation,
+    User,
+    WorldEntry,
+)
 from ..schemas import (
+    CardGenerateIn,
     CharacterCreate,
     CharacterUpdate,
     FavoriteIn,
@@ -523,6 +531,55 @@ def delete_regex(rule_id: int, user: User = Depends(current_user)):
         db.delete(rule)
         db.commit()
         return {"ok": True}
+
+
+@router.post("/cards/generate")
+async def card_generate(
+    payload: CardGenerateIn, request: Request, user: User = Depends(current_user)
+):
+    """前端卡脚本调用：按卡片提示生成一段文本，不写入聊天记录。"""
+    prompt = (payload.prompt or "").strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="生成提示不能为空")
+    if len(prompt) > 20000:
+        raise HTTPException(status_code=400, detail="生成提示过长")
+
+    character = None
+    with SessionLocal() as db:
+        if payload.conversation_id:
+            conversation = db.get(Conversation, payload.conversation_id)
+            if not conversation or conversation.user_id != user.id:
+                raise HTTPException(status_code=404, detail="会话不存在")
+            character = db.get(Character, conversation.character_id)
+        elif payload.character_id:
+            character = db.get(Character, payload.character_id)
+            if not character:
+                raise HTTPException(status_code=404, detail="角色不存在")
+
+    name = character.name if character else "角色"
+    system = (
+        f"你正在协助完成一次角色扮演生成任务（角色：{name}）。"
+        "严格按用户给出的模板与要求输出，不要解释、不要加开场白或结束语，"
+        "不要输出 Markdown 代码块以外的多余内容。"
+    )
+
+    try:
+        text = await complete_chat(
+            "deepseek-chat",
+            [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=8000,
+            temperature=0.8,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"生成失败：{exc}") from exc
+
+    text = re.sub(
+        r"<thinking>.*?</thinking>", "", text, flags=re.I | re.S
+    ).strip()
+    return {"text": text}
 
 
 @router.get("/characters/{character_id}/world")
